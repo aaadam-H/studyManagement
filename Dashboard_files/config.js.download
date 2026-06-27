@@ -1,0 +1,7 @@
+(function() {
+  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
+  window._POSTHOG_REMOTE_CONFIG['phc_xAvL2Iq4tFmANRE7kzbKwaSqp1HJjN7x48s3vr0CMjs'] = {
+    config: {"analytics":{"endpoint":"/i/v0/e/"},"autocaptureExceptions":false,"autocapture_opt_out":true,"captureDeadClicks":true,"capturePerformance":{"network_timing":true,"web_vitals":true,"web_vitals_allowed_metrics":null},"conversations":false,"defaultIdentifiedOnly":true,"elementsChainAsString":true,"errorTracking":{"autocaptureExceptions":false,"suppressionRules":[]},"hasFeatureFlags":true,"heatmaps":true,"logs":{"captureConsoleLogs":false},"productTours":false,"sessionRecording":{"canvasFps":3,"canvasQuality":"0.4","consoleLogRecordingEnabled":true,"endpoint":"/s/","eventTriggers":["subscription_payment_success","deployment_recording_started","deployment_confirmation_deploy_clicked","buy_subscription_clicked","buy_credits_button_clicked","chat_screen_buy_credits_button_clicked","plan_upgrade_button_clicked","job_created"],"linkedFlag":null,"masking":{"maskAllInputs":false},"minimumDurationMilliseconds":5000,"networkPayloadCapture":{"recordBody":true,"recordHeaders":true},"recordCanvas":true,"recorderVersion":"v2","sampleRate":"0.05","scriptConfig":{"script":"posthog-recorder"},"triggerMatchType":"any","urlBlocklist":[{"matching":"regex","url":"^https://mx-online-sre-cita-express.com(/.*)$"}],"urlTriggers":[],"version":1},"supportedCompression":["gzip","gzip-js"],"surveys":false,"token":"phc_xAvL2Iq4tFmANRE7kzbKwaSqp1HJjN7x48s3vr0CMjs"},
+    siteApps: []
+  }
+})();
