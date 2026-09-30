@@ -64,17 +64,9 @@ async function getTimetable(uid = me.id, prof = me) {
       : main && gs.includes(main) ? main
       : gs.length === 1 ? gs[0] : null;
   }
-  const picked = courses.filter((c) => c.chosen);
-  const rows = picked.length
-    ? await q(sb.from('classes').select('*').in('course_code', picked.map((c) => c.code)).in('section', [...new Set(picked.map((c) => c.chosen))]))
-    : [];
-  const byCode = Object.fromEntries(courses.map((c) => [c.code, c]));
-  const classes = rows
-    .filter((r) => byCode[r.course_code]?.chosen === r.section)
-    .map((r) => ({ ...r, start: r.start_time, end: r.end_time, course_name: byCode[r.course_code]?.name }))
-    .concat(custom.map((r) => ({ ...r, start: r.start_time, end: r.end_time, custom: true, section: 'added by you',
-      course_name: r.title || byCode[r.course_code]?.name || '' })))
-    .sort((a, b) => a.day - b.day || a.start.localeCompare(b.start));
+  // the week itself comes from the database (same rules as above), so the calendar export always matches
+  const rows = await q(sb.rpc('my_timetable', { target: uid === me.id ? null : uid }));
+  const classes = rows.map((r) => ({ ...r, start: r.start_time, end: r.end_time }));
   // suggest main groups: most of the student's subjects first, own programme code first
   const progs = new Set(courses.map((c) => c.grp).filter(Boolean));
   const count = {};
@@ -82,7 +74,8 @@ async function getTimetable(uid = me.id, prof = me) {
   const groupOptions = Object.keys(count)
     .sort((a, b) => (progs.has(b.split(' - ')[0]) - progs.has(a.split(' - ')[0])) || count[b] - count[a] || a.localeCompare(b))
     .slice(0, 40).map((g) => ({ group: g, n: count[g] }));
-  return { url: settings.timetable_url, synced_at: settings.timetable_synced_at, classes, courses, custom, main, groupOptions,
+  return { url: settings.timetable_url, synced_at: settings.timetable_synced_at, semester_start: settings.semester_start, semester_end: settings.semester_end,
+    break_start: settings.break_start, break_end: settings.break_end, classes, courses, custom, main, groupOptions,
     myCourseCount: courses.length, totalClassesInDb: total };
 }
 async function getBulletin() {
@@ -228,6 +221,7 @@ async function pgTimetable(m) {
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
       <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
     ${tt.custom.length ? `<h4>Your added classes</h4><table>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${c.id}">Remove</button></td></tr>`).join('')}</table>` : ''}</div>
+  ${calendarCard(tt)}
   <h3>Your week</h3>${weekHtml(tt)}
   <p class="mute">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>`;
   const mg = document.getElementById('mg');
@@ -244,6 +238,51 @@ async function pgTimetable(m) {
     try { await q(sb.from('my_classes').insert({ ...d, day: +d.day })); render(); } catch (er) { flash(document.getElementById('mcm'), er.message); }
   };
   m.querySelectorAll('[data-rmc]').forEach((b) => (b.onclick = async () => { await q(sb.from('my_classes').delete().eq('id', b.dataset.rmc)); render(); }));
+  wireCalendarCard(m);
+}
+
+/* ---------------- calendar apps (.ics download + Google / Apple subscription) ---------------- */
+const feedUrl = () => `${CFG.SUPABASE_URL}/functions/v1/calendar-feed?token=${me.calendar_token}`;
+function calendarCard(tt) {
+  const https = feedUrl(), webcal = https.replace(/^https:/, 'webcal:');
+  const range = tt.semester_start ? `${tt.semester_start} to ${tt.semester_end || '?'}${tt.break_start ? `, skipping the break ${tt.break_start} to ${tt.break_end}` : ''}` : 'this week plus 14 weeks (the admin has not set semester dates yet)';
+  return `<div class="card"><h3>Add to your calendar app</h3>
+  <p class="mute">Your classes repeat weekly: ${esc(range)}. Times are Malaysia time.</p>
+  <div class="btns">
+    <button id="ics" type="button">Download .ics (Apple / Outlook)</button>
+    <a class="btn" target="_blank" rel="noopener" href="https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}">Connect Google Calendar</a>
+    <a class="btn ghost-link" href="${esc(webcal)}">Subscribe in Apple Calendar</a>
+  </div><div id="icm"></div>
+  <details><summary>Live link and help</summary>
+    <p class="mute">"Connect" and "Subscribe" keep your calendar updated when your timetable changes (Google refreshes every few hours, Apple about every 6 hours). The download is a one-time copy.</p>
+    <p class="mute"><b>Google, by hand:</b> Google Calendar on a computer, "Other calendars" <b>+</b>, "From URL", paste the link below. On a phone, add it on a computer once; it then shows on your phone.<br>
+    <b>iPhone:</b> tap "Subscribe in Apple Calendar", or Settings, Calendar, Accounts, Add Account, Other, Add Subscribed Calendar, paste the link.</p>
+    <div class="row"><input id="feed" readonly value="${esc(https)}"><button type="button" class="ghost" id="cpy">Copy link</button></div>
+    <p class="mute">Keep this link private: anyone with it can see your timetable. <a href="#" id="rst">Make a new link</a> (the old one stops working).</p>
+  </details></div>`;
+}
+function wireCalendarCard(m) {
+  const msg = document.getElementById('icm');
+  document.getElementById('ics').onclick = async () => {
+    try {
+      const text = await q(sb.rpc('my_calendar_ics'));
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'text/calendar' }));
+      a.download = 'studyhub-timetable.ics';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch (er) { flash(msg, er.message); }
+  };
+  document.getElementById('cpy').onclick = async () => {
+    try { await navigator.clipboard.writeText(feedUrl()); flash(msg, 'Link copied', 1); }
+    catch { document.getElementById('feed').select(); flash(msg, 'Press Ctrl+C to copy'); }
+  };
+  document.getElementById('rst').onclick = async (e) => {
+    e.preventDefault();
+    if (!confirm('Make a new calendar link? Calendars using the old link stop updating and must be re-connected.')) return;
+    me.calendar_token = await q(sb.rpc('reset_calendar_token'));
+    render();
+  };
 }
 
 /* ---------------- courses + slip ---------------- */
@@ -434,6 +473,10 @@ async function pgAdmin(m) {
   <form id="tl"><input name="timetable_url" type="url" value="${esc(s.timetable_url)}" required><div class="row" style="margin-top:8px"><button>Save link</button><button type="button" class="ghost" id="sync">Save &amp; sync now</button></div></form>
   <p class="mute">${count} class entries loaded${s.timetable_synced_at ? ' · last sync ' + esc(new Date(s.timetable_synced_at).toLocaleString()) : ''}</p>
   <form id="upl"><label>Or upload the saved timetable page (.html) if sync fails</label><div class="row"><input type="file" name="html" accept=".html,.htm,text/html" required><button class="ghost">Upload &amp; parse</button></div></form><div id="tm"></div></div>
+  <form class="card" id="sem"><h3>Semester dates</h3><p class="mute">Used when students add their timetable to Google / Apple Calendar: classes repeat weekly between these dates and skip the break.</p>
+  <div class="row"><div><label>Semester start</label><input type="date" name="semester_start" value="${esc(s.semester_start)}"></div><div><label>Semester end</label><input type="date" name="semester_end" value="${esc(s.semester_end)}"></div></div>
+  <div class="row"><div><label>Mid-semester break start <span class="mute">(optional)</span></label><input type="date" name="break_start" value="${esc(s.break_start)}"></div><div><label>Break end <span class="mute">(optional)</span></label><input type="date" name="break_end" value="${esc(s.break_end)}"></div></div>
+  <div id="semm"></div><p><button>Save dates</button></p></form>
   <div class="card"><h3>Users (${users.length})</h3><table><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
   ${users.map((u) => `<tr><td>${esc(u.student_id)}</td><td>${esc(u.name)}<br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td>${esc(u.program || '')}</td><td>${u.courses}</td><td>${esc(u.role)}</td><td><a class="btn sm" href="#/admin/user/${u.id}">View</a> ${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button> <button class="sm ghost" data-pw="${u.id}">Reset pw</button> <button class="sm danger" data-del="${u.id}">Delete</button>`}</td></tr>`).join('')}</table></div>`;
   const tm = document.getElementById('tm');
@@ -459,6 +502,14 @@ async function pgAdmin(m) {
   document.getElementById('upl').onsubmit = async (e) => {
     e.preventDefault();
     try { flash(tm, await loadTimetableHtml(await e.target.html.files[0].text(), (t) => (tm.innerHTML = `<span class="mute">${esc(t)}</span>`)), 1); } catch (er) { flash(tm, er.message); }
+  };
+  document.getElementById('sem').onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    if (d.semester_start && d.semester_end && d.semester_end < d.semester_start) return flash(document.getElementById('semm'), 'End must be after start');
+    if (!!d.break_start !== !!d.break_end || d.break_end < d.break_start) return flash(document.getElementById('semm'), 'Give both break dates, end after start');
+    try { await q(sb.from('settings').upsert(Object.entries(d).map(([key, value]) => ({ key, value })))); flash(document.getElementById('semm'), 'Saved', 1); }
+    catch (er) { flash(document.getElementById('semm'), er.message); }
   };
   wireUserActions(m);
 }

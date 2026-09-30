@@ -51,6 +51,16 @@ then use **Upload & parse** on the Admin tab. Each new semester: paste the new l
 Students then open **Timetable**, pick their main group, change the group for any subject they take with another group
 (mix and match), and can add classes by hand for anything missing.
 
+## 9. Calendar apps (Google / Apple)
+1. Supabase, **Edge Functions**, **Deploy a new function**, **Via Editor**, name it exactly **`calendar-feed`**,
+   paste `supabase/functions/calendar-feed/index.ts`, **Deploy**.
+2. Open the function's **Details** and turn **Verify JWT / Enforce JWT verification OFF**. Calendar apps can't log in;
+   each student's link carries a secret token instead, and the database only answers for a valid token.
+3. Site, **Admin**, **Semester dates**: set the semester start/end and the mid-semester break, then **Save dates**.
+
+Students then use the **Add to your calendar app** box on the Timetable page: **Download .ics** (Apple Calendar / Outlook,
+one-time copy), **Connect Google Calendar** or **Subscribe in Apple Calendar** (live, updates by itself).
+
 ## Good to know
 - **Free-tier pause**: Supabase pauses free projects after about a week with no activity. Open the Supabase dashboard and click **Restore**; no data is lost.
 - **Forgotten passwords**: an admin uses **Reset pw** on the Admin tab.

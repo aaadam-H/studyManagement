@@ -51,6 +51,8 @@ select pg_temp.expect((select count(*) from notes) = 0 and (select count(*) from
 select pg_temp.expect((select count(*) from enrollments) = 0, 'cannot see other users enrollments');
 select pg_temp.expect((select count(*) from posts) = 2, 'bulletin readable by everyone');
 select pg_temp.expect_fail($$insert into posts(course_code, title) values ('IMJ41203','x')$$, 'posting to a subject you are not in');
+select pg_temp.expect_fail($$select * from my_timetable('00000000-0000-0000-0000-00000000000b')$$, 'student reading another timetable');
+select pg_temp.expect_fail($$select build_ics('00000000-0000-0000-0000-00000000000b')$$, 'student calling build_ics directly');
 delete from posts;
 select pg_temp.expect((select count(*) from posts) = 2, 'cannot delete others posts');
 update notes set body = 'pwned';
@@ -84,6 +86,45 @@ reset role;
 select pg_temp.expect((select encrypted_password is null from auth.users where id = '00000000-0000-0000-0000-00000000000c') is null, 'deleted user gone');
 select pg_temp.expect((select role from profiles where student_id='231021306') = 'admin', 'admin promoted user');
 select pg_temp.expect((select count(*) from posts) = 1, 'admin deleted a student post');
+
+-- calendar export
+insert into settings(key, value) values ('semester_start', '2026-10-05'), ('semester_end', '2026-12-27'), ('break_start', '2026-11-16'), ('break_end', '2026-11-22')
+  on conflict (key) do update set value = excluded.value;
+select pg_temp.as_user('b');
+update enrollments set section = 'UR1 - Y1G2' where course_code = 'IMJ41203';
+select pg_temp.expect((select count(*) from my_timetable()) = 2, 'my_timetable: chosen group + own class');
+create temp table ics as select my_calendar_ics() as t;
+grant select on ics to authenticated;
+select pg_temp.expect((select t like '%DTSTART;TZID=Asia/Kuala_Lumpur:20261007T080000%' from ics), 'ics: Wednesday class starts first Wednesday of semester');
+select pg_temp.expect((select t like '%DTSTART;TZID=Asia/Kuala_Lumpur:20261006T140000%' from ics), 'ics: own Tuesday class included');
+select pg_temp.expect((select t like '%RRULE:FREQ=WEEKLY;UNTIL=20261227T155959Z%' from ics), 'ics: repeats weekly until semester end');
+select pg_temp.expect((select t like '%EXDATE;TZID=Asia/Kuala_Lumpur:20261118T080000%' and t like '%EXDATE;TZID=Asia/Kuala_Lumpur:20261117T140000%' from ics), 'ics: skips mid-semester break');
+select pg_temp.expect((select t like '%LOCATION:DK 9%' and t like E'%\r\nEND:VCALENDAR\r\n' from ics), 'ics: venue + CRLF line endings');
+update enrollments set section = 'none' where course_code = 'IMJ41203';
+select pg_temp.expect((select count(*) from my_timetable()) = 1, 'hidden subject left out');
+reset role;
+\o /var/tmp/shpg/test.ics
+\pset format unaligned
+\pset tuples_only on
+select t from ics;
+\pset format aligned
+\pset tuples_only off
+\o
+select pg_temp.as_user('b');
+create temp table tok as select calendar_token as t from profiles where id = auth.uid();
+reset role;
+grant select on tok to anon, authenticated;
+set role anon;
+select pg_temp.expect((select calendar_feed(t) from tok) like 'BEGIN:VCALENDAR%', 'feed works with the secret token (no login)');
+select pg_temp.expect(calendar_feed(gen_random_uuid()) is null, 'feed returns nothing for a wrong token');
+select pg_temp.expect_fail($$select my_calendar_ics()$$, 'anon download blocked');
+reset role;
+select pg_temp.as_user('b');
+select pg_temp.expect(reset_calendar_token() <> (select t from tok), 'reset gives a new link');
+reset role;
+set role anon;
+select pg_temp.expect((select calendar_feed(t) from tok) is null, 'old link stops working');
+reset role;
 
 -- anon (not logged in) sees nothing
 set role anon;

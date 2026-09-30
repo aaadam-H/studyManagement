@@ -32,6 +32,8 @@ create index if not exists classes_course_idx on public.classes(course_code);
 create index if not exists classes_section_idx on public.classes(section);
 -- the student's timetable group, e.g. 'UR6523002 - Y3G1' (added after first release)
 alter table public.profiles add column if not exists subgroup text;
+-- secret for the calendar subscription link (Google / Apple Calendar)
+alter table public.profiles add column if not exists calendar_token uuid not null default gen_random_uuid();
 -- classes a student adds by hand (mix-and-match groups, subjects missing from the university page)
 create table if not exists public.my_classes (
   id bigint generated always as identity primary key,
@@ -270,11 +272,136 @@ begin
   where id = target;
 end $$;
 
-revoke execute on all functions in schema public from anon, public;
+-- ---------- timetable + calendar export ----------
+-- A student's week, resolved the same way as the Timetable page:
+-- per-subject group, else main group, else the only group teaching it ('none' hides it), plus hand-added classes.
+create or replace function public.timetable_rows(uid uuid)
+returns table (course_code text, course_name text, section text, day int, start_time text, end_time text,
+               kind text, venue text, lecturer text, custom boolean)
+language sql stable security definer set search_path = public as $$
+  with p as (select subgroup from profiles where id = uid),
+  e as (select en.course_code, en.section, c.name from enrollments en join courses c on c.code = en.course_code where en.user_id = uid),
+  pick as (
+    select e.course_code, e.name,
+      case
+        when e.section = 'none' then null
+        when e.section is not null and exists (select 1 from classes x where x.course_code = e.course_code and x.section = e.section) then e.section
+        when exists (select 1 from classes x, p where x.course_code = e.course_code and x.section = p.subgroup) then (select subgroup from p)
+        when (select count(distinct x.section) from classes x where x.course_code = e.course_code) = 1
+          then (select min(x.section) from classes x where x.course_code = e.course_code)
+      end as chosen
+    from e)
+  select cl.course_code, pick.name, cl.section, cl.day, cl.start_time, cl.end_time, cl.kind, cl.venue, cl.lecturer, false
+  from pick join classes cl on cl.course_code = pick.course_code and cl.section = pick.chosen
+  union all
+  select m.course_code, coalesce(nullif(m.title, ''), c.name), 'added by you', m.day, m.start_time, m.end_time, m.kind, m.venue, null, true
+  from my_classes m left join courses c on c.code = m.course_code where m.user_id = uid
+$$;
+
+-- For the app: your own week, or any student's week for an admin
+create or replace function public.my_timetable(target uuid default null)
+returns table (course_code text, course_name text, section text, day int, start_time text, end_time text,
+               kind text, venue text, lecturer text, custom boolean)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if target is not null and target <> auth.uid() and not is_admin() then raise exception 'admin only'; end if;
+  return query select * from timetable_rows(coalesce(target, auth.uid())) t order by t.day, t.start_time;
+end $$;
+
+-- iCalendar text escaping and 75-char line folding
+create or replace function public.ics_text(t text) returns text language sql immutable as $$
+  select replace(replace(replace(replace(coalesce(t, ''), '\', '\\'), ';', '\;'), ',', '\,'), E'\n', '\n')
+$$;
+create or replace function public.ics_fold(line text) returns text language plpgsql immutable as $$
+declare out text := left(line, 74); rest text := substr(line, 75);
+begin
+  while length(rest) > 0 loop out := out || E'\r\n ' || left(rest, 73); rest := substr(rest, 74); end loop;
+  return out;
+end $$;
+
+-- Build the .ics for one student. Weekly repeating events from the semester start to end (Admin > Semester dates),
+-- skipping the mid-semester break. Without dates: this week + 14 weeks. Times are Malaysia time.
+create or replace function public.build_ics(uid uuid) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare
+  s_start date := coalesce(nullif((select value from settings where key = 'semester_start'), '')::date, date_trunc('week', current_date)::date);
+  s_end   date := coalesce(nullif((select value from settings where key = 'semester_end'), '')::date, s_start + 14 * 7 - 1);
+  b_start date := nullif((select value from settings where key = 'break_start'), '')::date;
+  b_end   date := nullif((select value from settings where key = 'break_end'), '')::date;
+  who text := (select name from profiles where id = uid);
+  lines text[] := array['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//StudyHub//Timetable//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:' || ics_text('StudyHub timetable' || coalesce(' - ' || who, '')), 'X-WR-TIMEZONE:Asia/Kuala_Lumpur',
+    'REFRESH-INTERVAL;VALUE=DURATION:PT6H', 'X-PUBLISHED-TTL:PT6H',
+    'BEGIN:VTIMEZONE', 'TZID:Asia/Kuala_Lumpur', 'BEGIN:STANDARD', 'DTSTART:19700101T000000', 'TZOFFSETFROM:+0800', 'TZOFFSETTO:+0800', 'TZNAME:MYT', 'END:STANDARD', 'END:VTIMEZONE'];
+  r record; first date; d date; ex text; stamp text := to_char(now() at time zone 'utc', 'YYYYMMDD"T"HH24MISS"Z"');
+begin
+  if s_end < s_start then s_end := s_start + 14 * 7 - 1; end if;
+  for r in select * from timetable_rows(uid) loop
+    first := s_start + ((r.day - extract(isodow from s_start)::int + 7) % 7);
+    if first > s_end then continue; end if;
+    ex := null;
+    if b_start is not null and b_end is not null then
+      d := first;
+      while d <= least(b_end, s_end) loop
+        if d >= b_start then ex := coalesce(ex || ',', '') || to_char(d, 'YYYYMMDD') || 'T' || replace(r.start_time, ':', '') || '00'; end if;
+        d := d + 7;
+      end loop;
+    end if;
+    lines := lines || array_remove(array[
+      'BEGIN:VEVENT',
+      'UID:' || md5(uid::text || r.course_code || coalesce(r.section, '') || r.day || r.start_time || coalesce(r.venue, '')) || '@studyhub',
+      'DTSTAMP:' || stamp,
+      'DTSTART;TZID=Asia/Kuala_Lumpur:' || to_char(first, 'YYYYMMDD') || 'T' || replace(r.start_time, ':', '') || '00',
+      'DTEND;TZID=Asia/Kuala_Lumpur:' || to_char(first, 'YYYYMMDD') || 'T' || replace(r.end_time, ':', '') || '00',
+      -- UNTIL is in UTC: 23:59:59 Malaysia time on the last day
+      'RRULE:FREQ=WEEKLY;UNTIL=' || to_char(s_end, 'YYYYMMDD') || 'T155959Z',
+      ics_fold('SUMMARY:' || ics_text(coalesce(r.course_code || ' ', '') || coalesce(r.course_name, '') || coalesce(' (' || initcap(r.kind) || ')', ''))),
+      case when coalesce(r.venue, '') <> '' then ics_fold('LOCATION:' || ics_text(r.venue)) end,
+      ics_fold('DESCRIPTION:' || ics_text(concat_ws(E'\n', 'Lecturer: ' || r.lecturer,
+        case when r.custom then 'Added by you in StudyHub' else 'Group: ' || r.section end)))], null);
+    if ex is not null then lines := lines || ics_fold('EXDATE;TZID=Asia/Kuala_Lumpur:' || ex); end if;
+    lines := lines || 'END:VEVENT'::text;
+  end loop;
+  lines := lines || 'END:VCALENDAR'::text;
+  return array_to_string(lines, E'\r\n') || E'\r\n';
+end $$;
+
+-- Download for the logged-in student
+create or replace function public.my_calendar_ics() returns text
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'not logged in'; end if;
+  return build_ics(auth.uid());
+end $$;
+
+-- Subscription feed (called by the calendar-feed Edge Function, no login): the secret token picks the student
+create or replace function public.calendar_feed(token uuid) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare uid uuid := (select id from profiles where calendar_token = token);
+begin
+  if uid is null then return null; end if;
+  return build_ics(uid);
+end $$;
+
+-- New secret link (the old one stops working)
+create or replace function public.reset_calendar_token() returns uuid
+language plpgsql security definer set search_path = public as $$
+declare t uuid := gen_random_uuid();
+begin
+  if auth.uid() is null then raise exception 'not logged in'; end if;
+  update profiles set calendar_token = t where id = auth.uid();
+  return t;
+end $$;
+
+-- Supabase grants EXECUTE on new functions to anon and authenticated by default; take it all back,
+-- then allow only the functions the app calls (internal helpers like build_ics stay private)
+revoke execute on all functions in schema public from anon, authenticated, public;
 grant execute on function public.is_admin(), public.is_enrolled(text), public.save_courses(jsonb, boolean),
   public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_set_role(uuid, text),
   public.admin_reset_password(uuid, text), public.admin_delete_user(uuid),
-  public.admin_update_profile(uuid, jsonb) to authenticated;
+  public.admin_update_profile(uuid, jsonb), public.my_timetable(uuid), public.my_calendar_ics(),
+  public.reset_calendar_token() to authenticated;
+grant execute on function public.calendar_feed(uuid) to anon, authenticated;
 
 -- ---------- make yourself admin (run once after you register, with your own student ID) ----------
 -- update public.profiles set role = 'admin' where student_id = '231021306';
