@@ -279,18 +279,32 @@ function calendarCard(tt, ac) {
   const range = w.from_calendar ? `${w.sem_label}: ${fmtDate(w.first_day)} to ${fmtDate(w.last_day)}, skipping breaks and public holidays from the academic calendar (which is also added)`
     : tt.semester_start ? `${fmtDate(w.first_day)} to ${fmtDate(w.last_day)}${tt.break_start ? `, skipping the break ${tt.break_start} to ${tt.break_end}` : ''}`
     : 'this week plus 14 weeks (the admin has not uploaded the academic calendar yet)';
+  // Google's phone app can't add a calendar from a link, only the website (in desktop mode) can
+  const ua = navigator.userAgent;
+  const android = /Android/i.test(ua), ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const google = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
+  const phoneHelp = android || ios ? `<div class="phone-help">
+    <b>${ios ? 'On iPhone' : 'On Android'}:</b> ${ios ? 'tap <b>Subscribe in Apple Calendar</b> to add it to the iPhone Calendar app. For Google Calendar instead, follow the steps below.' : 'the Google Calendar app can\'t add a calendar from a link, so add it once through the Google Calendar website:'}
+    <ol><li>Tap <b>Copy link</b>.</li>
+      <li>Tap <b>Open "Add by URL"</b>. In Chrome, open the <b>&#8942;</b> menu and tick <b>Desktop site</b>.</li>
+      <li>Paste the link into <b>URL of calendar</b> and tap <b>Add calendar</b>.</li>
+      <li>In the Google Calendar app: <b>&#9776;</b> &rsaquo; <b>Settings</b> &rsaquo; <b>StudyHub timetable</b> &rsaquo; turn <b>Sync</b> on.</li></ol>
+    <div class="btns"><button type="button" class="ghost cpy">Copy link</button>
+      <a class="btn ghost-link" target="_blank" rel="noopener" href="https://calendar.google.com/calendar/r/settings/addbyurl">Open "Add by URL"</a></div></div>` : '';
   return `<div class="card"><h3>Add to your calendar app</h3>
   <p class="mute">Your classes repeat weekly: ${esc(range)}. Times are Malaysia time.</p>
   <div class="btns">
-    <button id="ics" type="button">Download .ics (Apple / Outlook)</button>
-    <a class="btn" target="_blank" rel="noopener" href="https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}">Connect Google Calendar</a>
-    <a class="btn ghost-link" href="${esc(webcal)}">Subscribe in Apple Calendar</a>
-  </div><div id="icm"></div>
+    ${ios ? `<a class="btn" href="${esc(webcal)}">Subscribe in Apple Calendar</a>` : ''}
+    ${android || ios ? '' : `<a class="btn" target="_blank" rel="noopener" href="${esc(google)}">Connect Google Calendar</a>`}
+    <button id="ics" type="button" class="${android || ios ? 'ghost' : ''}">Download .ics${android ? '' : ' (Apple / Outlook)'}</button>
+    ${ios || android ? '' : `<a class="btn ghost-link" href="${esc(webcal)}">Subscribe in Apple Calendar</a>`}
+  </div><div id="icm"></div>${phoneHelp}
   <details><summary>Live link and help</summary>
-    <p class="mute">"Connect" and "Subscribe" keep your calendar updated when your timetable changes (Google refreshes every few hours, Apple about every 6 hours). The download is a one-time copy.</p>
-    <p class="mute"><b>Google, by hand:</b> Google Calendar on a computer, "Other calendars" <b>+</b>, "From URL", paste the link below. On a phone, add it on a computer once; it then shows on your phone.<br>
-    <b>iPhone:</b> tap "Subscribe in Apple Calendar", or Settings, Calendar, Accounts, Add Account, Other, Add Subscribed Calendar, paste the link.</p>
-    <div class="row"><input id="feed" readonly value="${esc(https)}"><button type="button" class="ghost" id="cpy">Copy link</button></div>
+    <p class="mute">Subscribing keeps your calendar updated when your timetable changes (Google refreshes every few hours, Apple about every 6 hours). The download is a one-time copy.</p>
+    <p class="mute"><b>Google on a computer:</b> "Connect Google Calendar", or Google Calendar, "Other calendars" <b>+</b>, "From URL", paste the link below. It then also shows on your phone (turn on Sync for it in the phone app).<br>
+    <b>Google on a phone:</b> the app can't add links; use the website in desktop mode as described above.<br>
+    <b>iPhone:</b> "Subscribe in Apple Calendar", or Settings, Calendar, Accounts, Add Account, Other, Add Subscribed Calendar, paste the link.</p>
+    <div class="row"><input id="feed" readonly value="${esc(https)}"><button type="button" class="ghost cpy" id="cpy">Copy link</button></div>
     <p class="mute">Keep this link private: anyone with it can see your timetable. <a href="#" id="rst">Make a new link</a> (the old one stops working).</p>
   </details></div>`;
 }
@@ -306,10 +320,10 @@ function wireCalendarCard(m) {
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     } catch (er) { flash(msg, er.message); }
   };
-  document.getElementById('cpy').onclick = async () => {
+  m.querySelectorAll('.cpy').forEach((b) => (b.onclick = async () => {
     try { await navigator.clipboard.writeText(feedUrl()); flash(msg, 'Link copied', 1); }
-    catch { document.getElementById('feed').select(); flash(msg, 'Press Ctrl+C to copy'); }
-  };
+    catch { const f = document.getElementById('feed'); f.closest('details').open = true; f.select(); flash(msg, 'Select the link below and copy it'); }
+  }));
   document.getElementById('rst').onclick = async (e) => {
     e.preventDefault();
     if (!confirm('Make a new calendar link? Calendars using the old link stop updating and must be re-connected.')) return;

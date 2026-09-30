@@ -53,3 +53,5 @@ details{margin-top:12px}summary{cursor:pointer;color:var(--brand)}
 .card.now{border-left:4px solid var(--brand)}
 tr.cur td{font-weight:600;color:var(--brand)}
 tr.past td{opacity:.55}
+.phone-help{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:14px}
+.phone-help ol{margin:6px 0 10px;padding-left:20px}
