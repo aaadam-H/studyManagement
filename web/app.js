@@ -1,4 +1,4 @@
-import { parseSlipLines, parseTimetableDoc } from './parsers.js';
+import { parseSlipLines, parseTimetableDoc, prettyGroup } from './parsers.js';
 
 const CFG = window.STUDYHUB_CONFIG || {};
 const $app = document.getElementById('app');
@@ -8,6 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
+const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a><br><span class="mute">StudyHub © ${new Date().getFullYear()}</span></footer>`;
 const loginEmail = (sid) => `${sid.trim().toLowerCase()}@${CFG.LOGIN_EMAIL_DOMAIN || 'students.studyhub.app'}`;
 
 if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('YOUR-PROJECT') || !window.supabase) {
@@ -32,30 +33,57 @@ function courseOptions(courses, sel = '', blank = 'No subject') {
 }
 
 /* ---------------- data helpers ---------------- */
-async function myCourses() {
-  const rows = await q(sb.from('enrollments').select('course_code,status,grp,section,courses(name,credit)').eq('user_id', me.id).order('course_code'));
+async function myCourses(uid = me.id) {
+  const rows = await q(sb.from('enrollments').select('course_code,status,grp,section,courses(name,credit)').eq('user_id', uid).order('course_code'));
   return rows.map((r) => ({ code: r.course_code, name: r.courses?.name, credit: r.courses?.credit, status: r.status, grp: r.grp, section: r.section }));
 }
 async function getSettings() {
   const rows = await q(sb.from('settings').select('*'));
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 }
-async function getTimetable() {
-  const [courses, settings] = await Promise.all([myCourses(), getSettings()]);
-  const codes = courses.map((c) => c.code);
-  const [rows, total] = await Promise.all([
-    codes.length ? q(sb.from('classes').select('*').in('course_code', codes).order('day').order('start_time')) : [],
+// Build a student's week:
+//  - each subject uses the group chosen for it (mix-and-match), else the student's main group,
+//    else the only group that teaches it; 'none' hides it
+//  - plus classes the student added by hand
+async function getTimetable(uid = me.id, prof = me) {
+  const [courses, settings, custom, total] = await Promise.all([
+    myCourses(uid), getSettings(),
+    q(sb.from('my_classes').select('*').eq('user_id', uid)),
     sb.from('classes').select('id', { count: 'exact', head: true }).then((r) => r.count || 0),
   ]);
+  // one call per subject keeps each result small (a common subject can be taught in hundreds of groups)
+  const lists = await Promise.all(courses.map((c) => q(sb.rpc('class_sections', { codes: [c.code] }))));
+  const groupsOf = {};
+  courses.forEach((c, i) => (groupsOf[c.code] = lists[i].map((r) => r.section).sort()));
+  const main = prof.subgroup || null;
+  for (const c of courses) {
+    const gs = groupsOf[c.code];
+    c.groups = gs;
+    c.chosen = c.section === 'none' ? null
+      : c.section && gs.includes(c.section) ? c.section
+      : main && gs.includes(main) ? main
+      : gs.length === 1 ? gs[0] : null;
+  }
+  const picked = courses.filter((c) => c.chosen);
+  const rows = picked.length
+    ? await q(sb.from('classes').select('*').in('course_code', picked.map((c) => c.code)).in('section', [...new Set(picked.map((c) => c.chosen))]))
+    : [];
   const byCode = Object.fromEntries(courses.map((c) => [c.code, c]));
-  const sections = {};
-  for (const r of rows) (sections[r.course_code] ||= new Set()).add(r.section);
-  // a course listed in several sections shows all of them until the student picks one
   const classes = rows
-    .filter((r) => sections[r.course_code].size === 1 || !byCode[r.course_code].section || byCode[r.course_code].section === r.section)
-    .map((r) => ({ ...r, start: r.start_time, end: r.end_time, course_name: byCode[r.course_code]?.name }));
-  const needChoice = Object.entries(sections).filter(([code, s]) => s.size > 1 && !byCode[code].section).map(([code, s]) => ({ code, sections: [...s] }));
-  return { url: settings.timetable_url, synced_at: settings.timetable_synced_at, classes, needChoice, myCourseCount: courses.length, totalClassesInDb: total };
+    .filter((r) => byCode[r.course_code]?.chosen === r.section)
+    .map((r) => ({ ...r, start: r.start_time, end: r.end_time, course_name: byCode[r.course_code]?.name }))
+    .concat(custom.map((r) => ({ ...r, start: r.start_time, end: r.end_time, custom: true, section: 'added by you',
+      course_name: r.title || byCode[r.course_code]?.name || '' })))
+    .sort((a, b) => a.day - b.day || a.start.localeCompare(b.start));
+  // suggest main groups: most of the student's subjects first, own programme code first
+  const progs = new Set(courses.map((c) => c.grp).filter(Boolean));
+  const count = {};
+  for (const c of courses) for (const g of c.groups) count[g] = (count[g] || 0) + 1;
+  const groupOptions = Object.keys(count)
+    .sort((a, b) => (progs.has(b.split(' - ')[0]) - progs.has(a.split(' - ')[0])) || count[b] - count[a] || a.localeCompare(b))
+    .slice(0, 40).map((g) => ({ group: g, n: count[g] }));
+  return { url: settings.timetable_url, synced_at: settings.timetable_synced_at, classes, courses, custom, main, groupOptions,
+    myCourseCount: courses.length, totalClassesInDb: total };
 }
 async function getBulletin() {
   const [posts, all, mine] = await Promise.all([
@@ -67,21 +95,30 @@ async function getBulletin() {
   return { posts: posts.map((p) => ({ ...p, course_name: names[p.course_code] })), allCourses: all, mine: mine.map((c) => c.code) };
 }
 
+/* ---------------- profile fields (register, profile, admin edit) ---------------- */
+// Required: name, email, phone, programme. Optional: faculty, year, semester.
+function profileFields(u, emailName = 'contact_email') {
+  const R = '<span class="req">*</span>', O = '<span class="mute">(optional)</span>';
+  return `<label>Full name ${R}</label><input name="name" value="${esc(u.name)}" required maxlength="120">
+  <div class="row"><div><label>Email ${R}</label><input name="${emailName}" type="email" value="${esc(u.email)}" required maxlength="120"></div>
+  <div><label>Phone ${R}</label><input name="phone" type="tel" value="${esc(u.phone)}" required pattern="[0-9+ \\-]{9,15}" title="e.g. 012-3456789" maxlength="20"></div></div>
+  <label>Programme ${R}</label><input name="program" value="${esc(u.program)}" required placeholder="e.g. Kejuruteraan Komputer" maxlength="120">
+  <div class="row"><div><label>Faculty / school ${O}</label><input name="faculty" value="${esc(u.faculty)}" maxlength="120"></div>
+  <div><label>Year ${O}</label><input name="year" type="number" min="1" max="6" value="${esc(u.year)}"></div>
+  <div><label>Semester ${O}</label><input name="semester" value="${esc(u.semester)}" placeholder="e.g. Sem 1 2026/2027" maxlength="40"></div></div>`;
+}
+
 /* ---------------- auth screens ---------------- */
 function authScreen(mode = 'login') {
   const reg = mode === 'register';
   $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">${reg ? 'Create your student account' : 'Log in to your study planner'}</p>
   <form class="card" id="f">
-    <label>Student ID (matric no.)</label><input name="student_id" required pattern="[A-Za-z0-9._-]{3,30}" autocomplete="username">
-    ${reg ? `<label>Full name</label><input name="name" required>
-    <div class="row"><div><label>Email</label><input name="contact_email" type="email"></div><div><label>Phone</label><input name="phone"></div></div>
-    <label>Programme</label><input name="program" placeholder="e.g. Kejuruteraan Komputer">
-    <div class="row"><div><label>Faculty / school</label><input name="faculty"></div><div><label>Year</label><input name="year" type="number" min="1" max="6"></div></div>
-    <label>Current semester</label><input name="semester" placeholder="e.g. Sem 1 2026/2027">` : ''}
-    <label>Password ${reg ? '(min 8 characters)' : ''}</label><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">
+    <label>Student ID (matric no.) <span class="req">*</span></label><input name="student_id" required pattern="[A-Za-z0-9._-]{3,30}" autocomplete="username">
+    ${reg ? profileFields({}) : ''}
+    <label>Password ${reg ? '<span class="req">*</span> (min 8 characters)' : ''}</label><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">
     <div id="msg"></div><p><button>${reg ? 'Register' : 'Log in'}</button></p>
     <p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>
-  </form></div>`;
+  </form>${FOOTER}</div>`;
   document.getElementById('sw').onclick = (e) => { e.preventDefault(); authScreen(reg ? 'login' : 'register'); };
   document.getElementById('f').onsubmit = async (e) => {
     e.preventDefault();
@@ -120,7 +157,7 @@ async function render() {
   const [, fn] = routes[key] || routes[''];
   $app.innerHTML = `<div class="shell"><nav><h1>StudyHub</h1><small>Personal Management</small>
     ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}</a>`).join('')}
-    <div class="who">${esc(me.name)}<br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo">Log out</a></div></nav><main id="main">Loading...</main></div>`;
+    <div class="who">${esc(me.name)}<br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo">Log out</a></div></nav><div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
   document.getElementById('lo').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); me = null; authScreen(); };
   try { await fn(document.getElementById('main')); }
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
@@ -129,7 +166,7 @@ window.addEventListener('hashchange', render);
 sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; authScreen(); } });
 
 /* ---------------- dashboard ---------------- */
-const clsHtml = (c) => `<div class="cls"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${[c.kind, c.venue, c.lecturer, c.section].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
+const clsHtml = (c) => `<div class="cls${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${[c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section)].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
 async function pgDashboard(m) {
   const [tt, asg, bul] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*').order('due_date')), getBulletin()]);
   const dow = new Date().getDay() || 7, t = localISO();
@@ -146,23 +183,67 @@ async function pgDashboard(m) {
 }
 
 /* ---------------- timetable ---------------- */
-async function pgTimetable(m) {
-  const tt = await getTimetable();
-  let html = `<h2>Timetable</h2><p class="sub">Built from your registered courses and the university timetable page.</p>`;
-  if (!tt.myCourseCount) html += `<div class="card">You have no courses yet. <a href="#/courses">Upload your registration slip</a>.</div>`;
-  else if (!tt.totalClassesInDb) html += `<div class="card">The timetable has not been loaded yet. ${me.role === 'admin' ? '<a href="#/admin">Sync it in Admin</a>.' : 'Ask an admin to sync it.'}</div>`;
-  if (tt.needChoice.length) html += `<div class="card"><b>Choose your section</b><p class="mute">These courses appear in more than one timetable section.</p>${tt.needChoice.map((n) => `<div class="row"><div><label>${esc(n.code)}</label><select data-code="${esc(n.code)}" class="sec"><option value="">Show all sections</option>${n.sections.map((s) => `<option>${esc(s)}</option>`).join('')}</select></div></div>`).join('')}</div>`;
+const groupLabel = (g) => `${prettyGroup(g)} (${g})`;
+function weekHtml(tt) {
+  let html = '';
   for (let d = 1; d <= 7; d++) {
     const cs = tt.classes.filter((c) => c.day === d);
     if (cs.length) html += `<div class="card day"><h3>${DAYN[d]}</h3>${cs.map(clsHtml).join('')}</div>`;
   }
-  if (tt.totalClassesInDb && tt.myCourseCount && !tt.classes.length) html += `<div class="card">None of your courses were found in the loaded timetable.</div>`;
-  html += `<p class="mute">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · last synced ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>`;
-  m.innerHTML = html;
-  m.querySelectorAll('.sec').forEach((s) => (s.onchange = async () => {
+  return html || '<div class="card mute">No classes to show yet.</div>';
+}
+// read-only view (admin looking at a student)
+function timetableHtml(tt) {
+  if (!tt.myCourseCount && !tt.custom.length) return '<div class="card">No registered courses.</div>';
+  return `<div class="card"><p>Main group: <b>${tt.main ? esc(groupLabel(tt.main)) : 'not chosen'}</b></p>
+  <table><tr><th>Subject</th><th>Group used</th></tr>${tt.courses.map((c) => `<tr><td>${esc(c.code)} ${esc(c.name || '')}</td><td>${c.chosen ? esc(groupLabel(c.chosen)) : c.section === 'none' ? 'hidden' : '<span class="mute">not set</span>'}</td></tr>`).join('')}</table></div>
+  ${weekHtml(tt)}`;
+}
+async function pgTimetable(m) {
+  const tt = await getTimetable();
+  const noData = !tt.totalClassesInDb;
+  const courseOpts = tt.courses.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('');
+  m.innerHTML = `<h2>Timetable</h2><p class="sub">Built from your registered subjects and the university timetable. Mix-and-match groups are fine.</p>
+  ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
+  ${noData ? `<div class="card">The university timetable has not been loaded yet. ${me.role === 'admin' ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
+  ${tt.myCourseCount && !noData ? `<div class="card"><h3>1. Your main group</h3>
+    <p class="mute">Pick the group you mostly attend with. Groups teaching the most of your subjects are listed first.</p>
+    ${tt.groupOptions.length ? `<div class="row"><div><select id="mg"><option value="">- choose your group -</option>${tt.groupOptions.map((o) => `<option value="${esc(o.group)}" ${o.group === tt.main ? 'selected' : ''}>${esc(groupLabel(o.group))} - teaches ${o.n} of your ${tt.myCourseCount} subjects</option>`).join('')}</select></div></div>`
+      : '<p>None of your subjects appear in the loaded timetable. Add your classes manually below.</p>'}</div>
+  <div class="card"><h3>2. Group for each subject</h3>
+    <p class="mute">Took a subject with a different group? Change it here. Choose "Hide" for subjects without scheduled classes.</p>
+    <table><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr><td><b>${esc(c.code)}</b> ${esc(c.name || '')}</td><td>
+      ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}">
+        <option value="" ${!c.section ? 'selected' : ''}>${tt.main && c.groups.includes(tt.main) ? 'Same as main group' : c.groups.length === 1 ? 'Only group: ' + esc(prettyGroup(c.groups[0])) : '- choose -'}</option>
+        ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(groupLabel(g))}</option>`).join('')}
+        <option value="none" ${c.section === 'none' ? 'selected' : ''}>Hide this subject</option></select>`
+      : '<span class="mute">Not in the university timetable. Add it manually below.</span>'}</td></tr>`).join('')}</table></div>` : ''}
+  <div class="card"><h3>${tt.myCourseCount && !noData ? '3. ' : ''}Add a class manually</h3>
+    <p class="mute">For classes that are missing or different from the university timetable.</p>
+    <form id="mc"><div class="row">
+      <div><label>Subject</label><select name="course_code">${courseOpts}<option value="">Other (type a title)</option></select></div>
+      <div><label>Title <span class="mute">(optional)</span></label><input name="title" maxlength="200" placeholder="e.g. Replacement class"></div></div>
+    <div class="row"><div><label>Day</label><select name="day" required>${DAYN.slice(1).map((d, i) => `<option value="${i + 1}">${d}</option>`).join('')}</select></div>
+      <div><label>Start</label><input type="time" name="start_time" required></div><div><label>End</label><input type="time" name="end_time" required></div></div>
+    <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
+      <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
+    ${tt.custom.length ? `<h4>Your added classes</h4><table>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${c.id}">Remove</button></td></tr>`).join('')}</table>` : ''}</div>
+  <h3>Your week</h3>${weekHtml(tt)}
+  <p class="mute">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>`;
+  const mg = document.getElementById('mg');
+  if (mg) mg.onchange = async () => { me = await q(sb.from('profiles').update({ subgroup: mg.value || null }).eq('id', me.id).select().single()); render(); };
+  m.querySelectorAll('.cg').forEach((s) => (s.onchange = async () => {
     await q(sb.from('enrollments').update({ section: s.value || null }).eq('user_id', me.id).eq('course_code', s.dataset.code));
     render();
   }));
+  document.getElementById('mc').onsubmit = async (e) => {
+    e.preventDefault();
+    const d = fd(e.target);
+    if (!d.course_code && !d.title) return flash(document.getElementById('mcm'), 'Choose a subject or type a title');
+    if (d.end_time <= d.start_time) return flash(document.getElementById('mcm'), 'End time must be after start time');
+    try { await q(sb.from('my_classes').insert({ ...d, day: +d.day })); render(); } catch (er) { flash(document.getElementById('mcm'), er.message); }
+  };
+  m.querySelectorAll('[data-rmc]').forEach((b) => (b.onclick = async () => { await q(sb.from('my_classes').delete().eq('id', b.dataset.rmc)); render(); }));
 }
 
 /* ---------------- courses + slip ---------------- */
@@ -301,7 +382,7 @@ async function pgCalendar(m) {
   for (let i = 0; i < 42; i++) {
     const d = new Date(start); d.setDate(start.getDate() + i);
     const cls = tt.classes.filter((c) => c.day === (d.getDay() || 7));
-    cells += `<div class="d ${d.getMonth() !== mo ? 'off' : ''} ${localISO(d) === localISO() ? 'today' : ''}"><b>${d.getDate()}</b>${cls.map((c) => `<div class="e" title="${esc(c.course_code)} ${esc(c.start)}-${esc(c.end)} ${esc(c.venue || '')}">${esc(c.start)} ${esc(c.course_code)}</div>`).join('')}${(due[localISO(d)] || []).map((t) => `<div class="e" style="color:var(--warn)" title="${esc(t)}">${esc(t)}</div>`).join('')}</div>`;
+    cells += `<div class="d ${d.getMonth() !== mo ? 'off' : ''} ${localISO(d) === localISO() ? 'today' : ''}"><b>${d.getDate()}</b>${cls.map((c) => `<div class="e" title="${esc(c.start)}-${esc(c.end)} ${esc(c.course_code)} ${esc(c.course_name || '')} ${esc(c.venue || '')}"><b>${esc(c.start)}</b> ${esc(c.course_name || c.course_code)}${c.course_name ? ` <span class="mute">${esc(c.course_code)}</span>` : ''}</div>`).join('')}${(due[localISO(d)] || []).map((t) => `<div class="e" style="color:var(--warn)" title="${esc(t)}">${esc(t)}</div>`).join('')}</div>`;
   }
   m.innerHTML = `<h2>Calendar</h2><p class="sub">Classes repeat weekly; deadlines come from your assignments and the bulletin.</p>
   <div class="row" style="align-items:center;margin-bottom:10px"><button class="ghost" id="pv">&lt;</button><b style="flex:2;text-align:center">${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b><button class="ghost" id="nx">&gt;</button><button class="ghost" id="td">Today</button></div>
@@ -313,9 +394,7 @@ async function pgCalendar(m) {
 /* ---------------- profile ---------------- */
 async function pgProfile(m) {
   m.innerHTML = `<h2>Profile</h2><p class="sub">Student ID: <b>${esc(me.student_id)}</b></p>
-  <form class="card" id="f"><label>Full name</label><input name="name" value="${esc(me.name)}" required>
-  <div class="row"><div><label>Email</label><input name="email" type="email" value="${esc(me.email)}"></div><div><label>Phone</label><input name="phone" value="${esc(me.phone)}"></div></div>
-  <label>Programme</label><input name="program" value="${esc(me.program)}"><div class="row"><div><label>Faculty</label><input name="faculty" value="${esc(me.faculty)}"></div><div><label>Year</label><input name="year" type="number" value="${esc(me.year)}"></div><div><label>Semester</label><input name="semester" value="${esc(me.semester)}"></div></div>
+  <form class="card" id="f">${profileFields(me, 'email')}
   <div id="m1"></div><p><button>Save</button></p></form>
   <form class="card" id="pw"><h3>Change password</h3><label>New password (min 8)</label><input type="password" name="next" minlength="8" required autocomplete="new-password"><div id="m2"></div><p><button>Change</button></p></form>`;
   document.getElementById('f').onsubmit = async (e) => {
@@ -331,22 +410,32 @@ async function pgProfile(m) {
 }
 
 /* ---------------- admin ---------------- */
-async function loadTimetableHtml(html, url) {
-  const hash = (url || '').split('#')[1] || null;
-  const result = parseTimetableDoc(new DOMParser().parseFromString(html, 'text/html'), hash);
+// Parse the whole timetable page (every group) and load it in batches.
+async function loadTimetableHtml(html, progress = () => {}) {
+  progress('Reading the timetable page...');
+  await new Promise((r) => setTimeout(r, 30));
+  const result = parseTimetableDoc(new DOMParser().parseFromString(html, 'text/html'));
   if (!result.classes.length) throw new Error(`No classes found (${result.tablesScanned} table(s) scanned). The page layout may have changed.`);
-  const n = await q(sb.rpc('admin_replace_classes', { items: result.classes }));
-  return `Loaded ${n} classes from ${result.tablesScanned} table(s)${result.selectedTable ? ' (' + result.selectedTable + ')' : ''}`;
+  const B = 1500;
+  let n = 0;
+  for (let i = 0; i < result.classes.length; i += B) {
+    progress(`Saving classes ${i + 1}-${Math.min(i + B, result.classes.length)} of ${result.classes.length}...`);
+    n += await q(sb.rpc('admin_replace_classes', { items: result.classes.slice(i, i + B), replace: i === 0 }));
+  }
+  const groups = new Set(result.classes.map((c) => c.section)).size;
+  return `Loaded ${n} classes for ${groups} groups. Students now pick their group on the Timetable page.`;
 }
 async function pgAdmin(m) {
+  const sub = location.hash.split('/');
+  if (sub[2] === 'user' && sub[3]) return pgAdminUser(m, sub[3]);
   const [s, users, count] = await Promise.all([getSettings(), q(sb.rpc('admin_users')), sb.from('classes').select('id', { count: 'exact', head: true }).then((r) => r.count || 0)]);
   m.innerHTML = `<h2>Admin</h2><p class="sub">Manage the timetable source and users.</p>
-  <div class="card"><h3>Timetable link</h3><p class="mute">Paste the timetable page link (add #table_xxxx to pick one table), save, then sync.</p>
+  <div class="card"><h3>Timetable link</h3><p class="mute">Paste the university timetable page link, then sync. Every group on the page is loaded; each student picks their own group (and can mix and match) on the Timetable page. When a new semester's timetable comes out, paste the new link and sync again.</p>
   <form id="tl"><input name="timetable_url" type="url" value="${esc(s.timetable_url)}" required><div class="row" style="margin-top:8px"><button>Save link</button><button type="button" class="ghost" id="sync">Save &amp; sync now</button></div></form>
   <p class="mute">${count} class entries loaded${s.timetable_synced_at ? ' · last sync ' + esc(new Date(s.timetable_synced_at).toLocaleString()) : ''}</p>
   <form id="upl"><label>Or upload the saved timetable page (.html) if sync fails</label><div class="row"><input type="file" name="html" accept=".html,.htm,text/html" required><button class="ghost">Upload &amp; parse</button></div></form><div id="tm"></div></div>
   <div class="card"><h3>Users (${users.length})</h3><table><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
-  ${users.map((u) => `<tr><td>${esc(u.student_id)}</td><td>${esc(u.name)}<br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td>${esc(u.program || '')}</td><td>${u.courses}</td><td>${esc(u.role)}</td><td>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button> <button class="sm ghost" data-pw="${u.id}">Reset pw</button> <button class="sm danger" data-del="${u.id}">Delete</button>`}</td></tr>`).join('')}</table></div>`;
+  ${users.map((u) => `<tr><td>${esc(u.student_id)}</td><td>${esc(u.name)}<br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td>${esc(u.program || '')}</td><td>${u.courses}</td><td>${esc(u.role)}</td><td><a class="btn sm" href="#/admin/user/${u.id}">View</a> ${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button> <button class="sm ghost" data-pw="${u.id}">Reset pw</button> <button class="sm danger" data-del="${u.id}">Delete</button>`}</td></tr>`).join('')}</table></div>`;
   const tm = document.getElementById('tm');
   const saveLink = async () => {
     const url = document.querySelector('#tl [name=timetable_url]').value.trim();
@@ -356,7 +445,7 @@ async function pgAdmin(m) {
   document.getElementById('tl').onsubmit = async (e) => { e.preventDefault(); try { await saveLink(); flash(tm, 'Link saved', 1); } catch (er) { flash(tm, er.message); } };
   document.getElementById('sync').onclick = async () => {
     try {
-      const url = await saveLink();
+      await saveLink();
       tm.innerHTML = '<span class="mute">Fetching timetable page...</span>';
       const { data, error } = await sb.functions.invoke('fetch-timetable');
       if (error) {
@@ -364,21 +453,46 @@ async function pgAdmin(m) {
         try { detail = (await error.context.json()).error || detail; } catch {}
         throw new Error(`Could not fetch the page: ${detail}. Use "Upload & parse" instead.`);
       }
-      flash(tm, await loadTimetableHtml(data.html, url), 1);
+      flash(tm, await loadTimetableHtml(data.html, (t) => (tm.innerHTML = `<span class="mute">${esc(t)}</span>`)), 1);
     } catch (er) { flash(tm, er.message); }
   };
   document.getElementById('upl').onsubmit = async (e) => {
     e.preventDefault();
-    try { flash(tm, await loadTimetableHtml(await e.target.html.files[0].text(), s.timetable_url), 1); } catch (er) { flash(tm, er.message); }
+    try { flash(tm, await loadTimetableHtml(await e.target.html.files[0].text(), (t) => (tm.innerHTML = `<span class="mute">${esc(t)}</span>`)), 1); } catch (er) { flash(tm, er.message); }
   };
-  m.querySelectorAll('[data-role]').forEach((b) => (b.onclick = async () => { await q(sb.rpc('admin_set_role', { target: b.dataset.role, new_role: b.dataset.r })); render(); }));
+  wireUserActions(m);
+}
+function wireUserActions(m, after = render) {
+  m.querySelectorAll('[data-role]').forEach((b) => (b.onclick = async () => { await q(sb.rpc('admin_set_role', { target: b.dataset.role, new_role: b.dataset.r })); after(); }));
   m.querySelectorAll('[data-pw]').forEach((b) => (b.onclick = async () => {
     const p = prompt('New password (min 8 characters):');
     if (p) { try { await q(sb.rpc('admin_reset_password', { target: b.dataset.pw, new_password: p })); alert('Password reset'); } catch (e) { alert(e.message); } }
   }));
   m.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
-    if (confirm('Delete this user and all their data?')) { await q(sb.rpc('admin_delete_user', { target: b.dataset.del })); render(); }
+    if (confirm('Delete this user and all their data? This cannot be undone.')) { await q(sb.rpc('admin_delete_user', { target: b.dataset.del })); location.hash = '#/admin'; render(); }
   }));
+}
+
+const userButtons = (u) => u.id === me.id ? '<span class="mute">(this is you)</span>' :
+  `<button class="ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button>
+   <button class="ghost" data-pw="${u.id}">Reset password</button> <button class="danger" data-del="${u.id}">Delete account</button>`;
+async function pgAdminUser(m, uid) {
+  const u = await q(sb.from('profiles').select('*').eq('id', uid).maybeSingle());
+  if (!u) { m.innerHTML = '<p><a href="#/admin">&larr; Back to users</a></p><div class="card">User not found.</div>'; return; }
+  const [cs, tt] = await Promise.all([myCourses(uid), getTimetable(uid, u)]);
+  m.innerHTML = `<p><a href="#/admin">&larr; Back to users</a></p><h2>${esc(u.name)}</h2>
+  <p class="sub">Student ID <b>${esc(u.student_id)}</b> · ${esc(u.role)} · joined ${esc(new Date(u.created_at).toLocaleDateString())}</p>
+  <div class="card"><h3>Account</h3><div class="row" style="gap:8px">${userButtons(u)}</div></div>
+  <form class="card" id="ef"><h3>Edit details</h3><p class="mute">The student ID is the login name and can't be changed.</p>${profileFields(u, 'email')}<label>Main timetable group <span class="mute">(optional, e.g. UR6523002 - Y3G1)</span></label><input name="subgroup" value="${esc(u.subgroup)}" maxlength="80"><div id="em"></div><p><button>Save changes</button></p></form>
+  <div class="card"><h3>Registered subjects (${cs.reduce((a, c) => a + (c.credit || 0), 0)} credits)</h3>
+  ${cs.length ? `<table><tr><th>Code</th><th>Name</th><th>Credit</th><th>Group</th><th>Section</th></tr>${cs.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit ?? ''}</td><td>${esc(c.grp || '')}</td><td>${esc(c.section || '')}</td></tr>`).join('')}</table>` : '<p class="mute">None.</p>'}</div>
+  <h3>Timetable</h3>${timetableHtml(tt)}`;
+  wireUserActions(m, () => pgAdminUser(m, uid));
+  document.getElementById('ef').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await q(sb.rpc('admin_update_profile', { target: uid, data: fd(e.target) })); flash(document.getElementById('em'), 'Saved', 1); }
+    catch (er) { flash(document.getElementById('em'), er.message); }
+  };
 }
 
 boot();
