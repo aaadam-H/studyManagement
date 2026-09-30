@@ -115,3 +115,7 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 @media (prefers-reduced-motion:reduce){.card.upd{animation:none}}
 /* add-to-home-screen hint */
 .install-hint{border-left:4px solid var(--ok)}.install-hint p{margin:6px 0 10px}.install-btn[hidden]{display:none}
+/* exams */
+.cal .e.exam{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad);border-left:3px solid var(--bad);padding-left:4px}
+.cls.exam{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--bg))}
+.exams-card{border-left:4px solid var(--bad)}

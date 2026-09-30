@@ -65,6 +65,53 @@ function tableToRows(table) {
   }
   return rows;
 }
+/* ---------- examination slip (UniMAP) ---------- */
+// Reads the session, matric (to catch a wrong upload), index number, the exam table and the exam hall rules.
+// The slip also shows the IC/passport number: it is deliberately never read.
+const MONTHS = { jan: 1, januari: 1, january: 1, feb: 2, februari: 2, february: 2, mac: 3, mar: 3, march: 3, apr: 4, april: 4,
+  mei: 5, may: 5, jun: 6, june: 6, jul: 7, julai: 7, july: 7, ogos: 8, aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+  okt: 10, oct: 10, oktober: 10, october: 10, nov: 11, november: 11, dis: 12, dec: 12, disember: 12, december: 12 };
+export function parseExamSlipLines(lines) {
+  const text = lines.join('\n');
+  const sess = text.match(/SEMESTER\s*(\d+)\s+ACADEMIC SESSION\s+([\d/]+)/i);
+  const exams = [], notices = [];
+  let mode = '';
+  for (const line of lines) {
+    if (/^NO\.?\s+COURSE CODE/i.test(line)) { mode = 'table'; continue; }
+    if (/^TOTAL UNIT/i.test(line)) { mode = ''; continue; }
+    if (/NOTICE/i.test(line) && /EXAMINATION/i.test(line)) { mode = 'rules'; continue; }
+    if (mode === 'table') {
+      // "2. IMJ32102 Jurutera Profesional [Professional Engineers] 2 17 July ,2026 9.00 AM DTC" (no date/time/venue = not scheduled on the slip)
+      const m = line.match(/^\d+\.?\s+([A-Z]{3}\d{5})\s+(.+?)\s+(\d{1,2})(?:\s+(\d{1,2})\s+([A-Za-z]+)\s*,?\s*(\d{4})(?:\s+(\d{1,2})[.:](\d{2})\s*([AP]M))?\s*(.*))?$/i);
+      if (m) {
+        const mon = MONTHS[(m[5] || '').toLowerCase()];
+        const h = m[7] ? (+m[7] % 12) + (/p/i.test(m[9]) ? 12 : 0) : null;
+        exams.push({
+          code: m[1], raw: m[2], credit: +m[3],
+          date: mon && +m[4] >= 1 && +m[4] <= 31 ? `${m[6]}-${String(mon).padStart(2, '0')}-${m[4].padStart(2, '0')}` : null,
+          time: h != null ? pad(h, +m[8]) : null,
+          venue: clean(m[10]) || null,
+        });
+      } else if (exams.length && !CODE_RE.test(line)) exams[exams.length - 1].raw += ' ' + line; // course name wrapped onto the next line
+    } else if (mode === 'rules') {
+      const n = line.match(/^\d+\.\s+(.*)$/);
+      if (n) notices.push(clean(n[1])); else if (notices.length && clean(line)) notices[notices.length - 1] += ' ' + clean(line);
+    }
+  }
+  for (const e of exams) {
+    // "Jurutera Profesional [Professional Engineers]" -> English name, Malay name kept too
+    const b = e.raw.match(/^(.*?)\s*\[(.*)\]\s*$/);
+    e.name = clean(b ? b[2] : e.raw); e.name_local = b ? clean(b[1]) : null;
+    delete e.raw;
+  }
+  return {
+    session: sess ? `Sem ${sess[1]} ${sess[2]}` : null,
+    matric: (text.match(/MATRI[CK](?:\s*(?:NUMBER|NO\.?))?\s*:\s*([A-Za-z0-9]+)/i) || [])[1] || null,
+    index_no: (text.match(/INDEX\s*NUMBER\s*:\s*([A-Za-z0-9-]+)/i) || [])[1] || null,
+    exams, notices,
+  };
+}
+
 const titleCase = (t) => t.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase()).replace(/\b(And|Of|In|For|The|To|With)\b/g, (w) => w.toLowerCase()).replace(/\b(Ii|Iii|Iv)\b/g, (w) => w.toUpperCase());
 
 // "EMK32503 - A / EMK32803 - B" -> ["EMK32503 - A", "EMK32803 - B"]; code-only pieces stay with the next name

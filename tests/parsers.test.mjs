@@ -1,8 +1,8 @@
-// npm test   (set SLIP_PDF=/path/to/slip.pdf to also test a real registration slip)
+// npm test   (set SLIP_PDF=/path/to/slip.pdf and/or EXAM_SLIP_PDF=/path/to/exam-slip.pdf to also test real PDFs)
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { parseHTML } from 'linkedom';
-import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus } from '../web/parsers.js';
+import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from '../web/parsers.js';
 
 const ok = (m) => console.log('  ok -', m);
 const { document } = parseHTML(fs.readFileSync(new URL('./fixtures/timetable-sample.html', import.meta.url), 'utf8'));
@@ -72,9 +72,18 @@ const s = parseSlipLines(['NAME : TEST USER', 'MATRIC NUMBER : 111', 'COURSE REG
 assert.deepEqual([s.name, s.matric, s.semester, s.courses[0].code, s.courses[0].name, s.courses[0].credit], ['TEST USER', '111', 'Sem 1 2026/2027', 'IMJ41002', 'Final Year Project 1', 2]);
 ok('slip: text lines');
 
-if (process.env.SLIP_PDF) {
+const ex = parseExamSlipLines(fs.readFileSync(new URL('./fixtures/exam-slip-sample.txt', import.meta.url), 'utf8').split(/\r?\n/));
+assert.deepEqual([ex.session, ex.matric, ex.index_no, ex.exams.length, ex.notices.length], ['Sem 2 2025/2026', '200000001', '12345', 5, 3]);
+assert.deepEqual(ex.exams[1], { code: 'IMJ32102', credit: 2, date: '2026-07-17', time: '09:00', venue: 'DTC', name: 'Professional Engineers', name_local: 'Jurutera Profesional' });
+assert.deepEqual([ex.exams[2].date, ex.exams[2].time, ex.exams[2].venue], ['2026-07-07', '14:30', 'DEWAN KULIAH 1']);
+assert.deepEqual([ex.exams[0].date, ex.exams[0].time, ex.exams[0].venue, ex.exams[0].name], [null, null, null, 'Integrated Design Project']);
+assert.ok(ex.notices[2].endsWith('strictly prohibited.'));
+assert.ok(!JSON.stringify(ex).includes('000000000000'), 'IC number must never be read');
+ok('exam slip: dates, 12h times, venues, unscheduled subjects, rules; IC number ignored');
+
+async function pdfLines(path) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(process.env.SLIP_PDF)), verbosity: 0 }).promise;
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(path)), verbosity: 0 }).promise;
   const lines = [];
   for (let p = 1; p <= doc.numPages; p++) {
     const rows = [];
@@ -86,9 +95,18 @@ if (process.env.SLIP_PDF) {
     }
     for (const r of rows.sort((a, b) => b.y - a.y)) lines.push(r.items.sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim());
   }
-  const r = parseSlipLines(lines);
+  return lines;
+}
+if (process.env.SLIP_PDF) {
+  const r = parseSlipLines(await pdfLines(process.env.SLIP_PDF));
   console.log('   ', r.matric, r.program, r.semester, r.courses.map((c) => c.code).join(','));
   assert.ok(r.courses.length > 0 && r.matric);
   ok('slip: real PDF (same line-building as the browser)');
+}
+if (process.env.EXAM_SLIP_PDF) {
+  const r = parseExamSlipLines(await pdfLines(process.env.EXAM_SLIP_PDF));
+  console.log('   ', r.session, r.exams.map((e) => `${e.code} ${e.date || '-'} ${e.time || ''} ${e.venue || ''}`).join(' | '));
+  assert.ok(r.exams.length > 0 && r.session);
+  ok('exam slip: real PDF (same line-building as the browser)');
 }
 console.log('ALL PARSER TESTS PASSED');

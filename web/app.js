@@ -1,4 +1,4 @@
-import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus } from './parsers.js';
+import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js';
 
 const CFG = window.STUDYHUB_CONFIG || {};
 const $app = document.getElementById('app');
@@ -194,7 +194,7 @@ function authScreen(mode = 'login') {
 
 /* ---------------- shell ---------------- */
 const ROUTES = {
-  '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
+  '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], exams: ['Exams', pgExams], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
   assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], help: ['Help', pgHelp],
 };
 async function boot() {
@@ -330,6 +330,8 @@ async function pgDashboard(m) {
   const overdue = pending.filter((a) => a.due_date && a.due_date < t);
   const upcoming = bul.posts.filter((p) => (!p.course_code || bul.mine.includes(p.course_code)) && p.due_date && p.due_date >= t).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 5);
   const checklist = await gettingStartedHtml(tt, ac);
+  const slip = await getExamSlip();
+  const nextExams = upcomingExams(slip).slice(0, 4);
   const dismissed = new Set(((await sb.from('update_dismissals').select('post_id')).data || []).map((r) => r.post_id));
   const updates = bul.posts.filter((p) => p.kind === 'update' && !dismissed.has(p.id));
   m.innerHTML = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
@@ -338,6 +340,7 @@ async function pgDashboard(m) {
   ${installHintHtml()}
   ${today.hol.length ? `<div class="card hol">${today.hol.map((e) => esc(e.title)).join(', ')}${today.classes ? '' : ' · no classes today'}</div>` : ''}
   ${checklist}
+  ${nextExams.length ? `<div class="card exams-card"><h3>Upcoming exams</h3>${nextExams.map((e) => `<div class="post"><span class="tag exam">${esc(countdown(e.date))}</span> <b>${esc(e.code)}</b> ${esc(e.name || '')}<br><span class="mute">${esc(fmtExamDate(e.date))}${e.time ? ', ' + esc(fmtTime(e.time)) : ''}${e.venue ? ' · ' + esc(e.venue) : ''}</span></div>`).join('')}<p><a href="#/exams">All exams</a></p></div>` : ''}
   <div class="grid"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
   <div class="card"><h3>Today's classes</h3>${todays.length ? todays.map(clsHtml).join('') : `<p class="mute">No classes today${today.st && today.st.kind !== 'lecture' ? ` (${esc(today.st.label.toLowerCase())})` : ''}.</p>`}
   ${nextHol ? `<p class="mute">Next holiday: ${esc(nextHol.title)}, ${esc(fmtDate(nextHol.start_date))}</p>` : ''}</div>
@@ -591,6 +594,7 @@ async function pgHelp(m) {
     ['Who can see my information?', 'Your assignments, grades, notes, own classes and contact details are private (admins can see your profile and timetable to help you). Bulletin posts show your name and student ID to other students.'],
     ['How do I report a problem or a post?', 'Use the <b>Feedback</b> page, or the <b>Report</b> link under any bulletin post. Only admins can read it, and their reply appears on your Feedback page (the menu shows a badge when there is a new reply).'],
     ['Can I put StudyHub on my phone like an app?', `Yes. ${INSTALL_STEPS} StudyHub then gets its own icon and opens full screen.`],
+    ['Where do I see my exam dates?', 'Upload your <b>examination slip</b> PDF on the <b>Exams</b> page. Your exams then show there with a countdown, on the Dashboard and in the Calendar. Subjects without a date on the slip are listed too: check the final exam schedule for those.'],
     ['I forgot my password', 'Ask an admin to reset it (WhatsApp below), then change it in <b>Profile</b>.'],
     ['What do "Lecture week" and the holidays come from?', 'The university\'s academic calendar, uploaded by the admin. See <b>Academic Calendar</b>.'],
   ];
@@ -892,10 +896,59 @@ async function pgNotes(m) {
   m.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { await q(sb.from('notes').delete().eq('id', b.dataset.del)); render(); }));
 }
 
+/* ---------------- exams ---------------- */
+const getExamSlip = async () => (await sb.from('exam_slips').select('*').eq('user_id', me.id).maybeSingle()).data || null;
+const daysUntil = (iso) => Math.round((new Date(iso + 'T00:00:00') - new Date(localISO() + 'T00:00:00')) / 864e5);
+const countdown = (iso) => { const n = daysUntil(iso); return n < 0 ? 'done' : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`; };
+const fmtTime = (t) => { if (!t) return ''; const [h, mi] = t.split(':').map(Number); return `${h % 12 || 12}:${String(mi).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+const fmtExamDate = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+const sortExams = (list) => [...list].sort((a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || (a.date || '').localeCompare(b.date || '') || (a.time || '').localeCompare(b.time || ''));
+const upcomingExams = (slip) => sortExams((slip?.exams || []).filter((e) => e.date && daysUntil(e.date) >= 0));
+function examTable(list) {
+  return `<table><tr><th>Date</th><th>Time</th><th>Subject</th><th>Venue</th><th></th></tr>${sortExams(list).map((e) => {
+    const past = e.date && daysUntil(e.date) < 0;
+    return `<tr class="${past ? 'past' : ''}"><td>${e.date ? esc(fmtExamDate(e.date)) : '<span class="mute">Not on slip</span>'}</td><td>${esc(fmtTime(e.time))}</td>
+      <td><b>${esc(e.code)}</b> ${esc(e.name || '')}</td><td>${esc(e.venue || '')}</td><td>${e.date ? `<span class="tag ${past ? '' : 'exam'}">${esc(countdown(e.date))}</span>` : ''}</td></tr>`;
+  }).join('')}</table>${list.some((e) => !e.date) ? '<p class="mute">No date on the slip: check the final exam schedule for those subjects.</p>' : ''}`;
+}
+async function pgExams(m) {
+  const slip = await getExamSlip();
+  m.innerHTML = `<h2>Exams</h2><p class="sub">Upload your examination slip to see your exam dates, times and venues here, on the Dashboard and in the Calendar.</p>
+  ${slip ? `<div class="card"><h3>${esc(slip.session || 'Examination slip')}</h3>
+    <p class="mute">Index number: <b>${esc(slip.index_no || '-')}</b> · uploaded ${esc(new Date(slip.uploaded_at).toLocaleDateString())}</p>${examTable(slip.exams)}</div>
+    ${slip.notices.length ? `<div class="card"><details><summary>Exam hall rules (${slip.notices.length})</summary><ol>${slip.notices.map((n) => `<li>${esc(n)}</li>`).join('')}</ol></details></div>` : ''}` : ''}
+  <div class="card"><h3>${slip ? 'Upload a new slip' : 'Upload your examination slip'}</h3>
+    <p class="mute">The PDF is read on your device. Only the exam details, index number and hall rules are saved; your IC number is not.</p>
+    <form id="ex"><div class="row"><input type="file" name="pdf" accept="application/pdf" required><button>Read slip</button></div></form>
+    <div id="exmsg"></div><div id="expv"></div>
+    ${slip ? '<p><button type="button" class="sm ghost" id="exdel">Remove my exam slip</button></p>' : ''}</div>`;
+  document.getElementById('ex').onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById('exmsg');
+    msg.innerHTML = '<span class="mute">Reading...</span>';
+    try {
+      const r = parseExamSlipLines(await pdfToLines(e.target.pdf.files[0]));
+      if (!r.exams.length) throw new Error('No exams found. Is this the UniMAP examination slip?');
+      msg.innerHTML = '';
+      document.getElementById('expv').innerHTML = `<h4>Found on the slip: ${esc(r.session || '')}${r.index_no ? ' · index number ' + esc(r.index_no) : ''}</h4>
+      ${r.matric && r.matric !== me.student_id ? `<div class="err">The matric number on this slip (${esc(r.matric)}) differs from your student ID (${esc(me.student_id)}).</div>` : ''}
+      ${examTable(r.exams)}<p><button id="exok" type="button">Save ${r.exams.length} subjects${slip ? ' (replaces the current slip)' : ''}</button></p>`;
+      document.getElementById('exok').onclick = async () => {
+        await q(sb.from('exam_slips').upsert({ user_id: me.id, session: r.session, index_no: r.index_no, exams: r.exams, notices: r.notices, uploaded_at: new Date().toISOString() }));
+        render();
+      };
+    } catch (err) { flash(msg, /^(No exams|Choose a PDF)/.test(err.message) ? err.message : 'Could not read that PDF: ' + err.message); }
+  };
+  const del = document.getElementById('exdel');
+  if (del) del.onclick = async () => { if (confirm('Remove your exam slip?')) { await q(sb.from('exam_slips').delete().eq('user_id', me.id)); render(); } };
+}
+
 /* ---------------- calendar ---------------- */
 let calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 async function pgCalendar(m) {
-  const [tt, asg, bul, ac] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*')), getBulletin(), getAcademic()]);
+  const [tt, asg, bul, ac, slip] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*')), getBulletin(), getAcademic(), getExamSlip()]);
+  const examsOn = {};
+  for (const e of slip?.exams || []) if (e.date) (examsOn[e.date] ||= []).push(e);
   const y = calMonth.getFullYear(), mo = calMonth.getMonth();
   const first = new Date(y, mo, 1), start = new Date(y, mo, 1 - first.getDay());
   const due = {};
@@ -908,10 +961,10 @@ async function pgCalendar(m) {
     const info = ac.day(localISO(d));
     const cls = info.classes ? tt.classes.filter((c) => c.day === (d.getDay() || 7)) : [];
     const iso = localISO(d), label = info.st && info.st.kind !== 'lecture' ? info.st.label : '';
-    days[iso] = { d, info, cls, due: due[iso] || [] };
+    days[iso] = { d, info, cls, due: due[iso] || [], exams: examsOn[iso] || [] };
     const tag = label && label !== prevLabel ? `<div class="e per" title="${esc(info.st.semester)}">${esc(label)}</div>` : '';
     prevLabel = label;
-    cells += `<div class="d ${d.getMonth() !== mo ? 'off' : ''} ${iso === localISO() ? 'today' : ''} ${label ? 'brk' : ''}" data-iso="${iso}"><b>${d.getDate()}</b>${info.hol.map((e) => `<div class="e holi" title="${esc(e.title)}">${esc(e.title)}</div>`).join('')}${tag}${cls.map((c) => `<div class="e c k-${kindKey(c.kind)}" title="${esc(c.start)}-${esc(c.end)} ${esc(c.course_code)} ${esc(c.course_name || '')} ${esc(c.kind || '')} ${esc(c.venue || '')}"><b>${esc(c.start)}</b> <span class="nm">${esc(c.course_name || c.course_code)}</span></div>`).join('')}${(due[iso] || []).map((t) => `<div class="e due" title="${esc(t)}">${esc(t)}</div>`).join('')}</div>`;
+    cells += `<div class="d ${d.getMonth() !== mo ? 'off' : ''} ${iso === localISO() ? 'today' : ''} ${label ? 'brk' : ''}" data-iso="${iso}"><b>${d.getDate()}</b>${info.hol.map((e) => `<div class="e holi" title="${esc(e.title)}">${esc(e.title)}</div>`).join('')}${tag}${(examsOn[iso] || []).map((e) => `<div class="e exam" title="Exam: ${esc(e.code)} ${esc(e.name || '')} ${esc(fmtTime(e.time))} ${esc(e.venue || '')}"><b>EXAM</b> <span class="nm">${esc(e.name || e.code)}</span></div>`).join('')}${cls.map((c) => `<div class="e c k-${kindKey(c.kind)}" title="${esc(c.start)}-${esc(c.end)} ${esc(c.course_code)} ${esc(c.course_name || '')} ${esc(c.kind || '')} ${esc(c.venue || '')}"><b>${esc(c.start)}</b> <span class="nm">${esc(c.course_name || c.course_code)}</span></div>`).join('')}${(due[iso] || []).map((t) => `<div class="e due" title="${esc(t)}">${esc(t)}</div>`).join('')}</div>`;
   }
   m.innerHTML = `<h2>Calendar</h2><p class="sub">Classes repeat weekly during lecture weeks; holidays and breaks come from the <a href="#/academic">academic calendar</a>; deadlines from your assignments and the bulletin.</p>
   <div class="row" style="align-items:center;margin-bottom:10px"><button class="ghost" id="pv">&lt;</button><b style="flex:2;text-align:center">${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b><button class="ghost" id="nx">&gt;</button><button class="ghost" id="td">Today</button></div>
@@ -927,6 +980,7 @@ async function pgCalendar(m) {
     document.getElementById('calday').innerHTML = `<h3>${x.d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
       ${st ? `<p class="mute">${esc(statusText(st))}</p>` : ''}
       ${x.info.hol.map((e) => `<p class="err">${esc(e.title)}</p>`).join('')}
+      ${x.exams.map((e) => `<div class="cls exam"><div class="t">${esc(fmtTime(e.time) || 'Exam')}</div><div><b>EXAM · ${esc(e.code)}</b> ${esc(e.name || '')}<br><span class="mute">${esc(e.venue || 'Venue not on slip')}</span></div></div>`).join('')}
       ${x.cls.length ? x.cls.map(clsHtml).join('') : '<p class="mute">No classes.</p>'}
       ${x.due.length ? `<h4>Due</h4>${x.due.map((t) => `<div class="post">${esc(t)}</div>`).join('')}` : ''}`;
   };

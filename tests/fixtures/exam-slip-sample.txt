@@ -1,0 +1,20 @@
+EXAMINATION SLIP
+Semester 2 Academic Session 2025/2026
+If no exam DATE,TIME and VENUE are specified in the slip,
+please refer to the final exam schedule.
+DATE PRINTED :03-JULY -2026
+NAME : TEST STUDENT BIN EXAMPLE IC/PASSPORT NUMBER : 000000000000
+MATRIK : 200000001 PROGRAMME : UR6523002 - COMPUTER ENGINEERING
+INTAKE SEMESTER : 2023-S1 INDEX NUMBER : 12345
+NO. COURSE CODE COURSE NAME CREDIT EXAM DATE TIME EXAM VENUE NOTE
+1. IMJ32004 Projek Reka Bentuk Bersepadu [Integrated Design Project] 4
+2. IMJ32102 Jurutera Profesional [Professional Engineers] 2 17 July ,2026 9.00 AM DTC
+3. IMJ32104 Rekabentuk Sistem Terbenam [Embedded Systems Design] 4 07 July ,2026 2.30 PM DEWAN KULIAH 1
+4. IMJ32204 Senibina Komputer [Computer Architecture] 4 15 July ,2026 9.00 AM DTC
+5. SMU22402 Keusahawanan Kejuruteraan [Engineering Entrepreneurship] 2
+TOTAL UNIT REGISTERED : 16
+IMPORTANCE NOTICE TO ALL STUDENTS BEFORE SITTING FOR THE FINAL EXAMINATION
+1. Students are allowed to bring required stationeries only into the examination hall, without the container.
+2. Calculators are allowed to be brought in, but with no casings.
+3. Students who bring along their mobile phones must ensure they are switched off and be placed on the floor at the left side of the desk.
+The use of mobile phones during the examination is strictly prohibited.

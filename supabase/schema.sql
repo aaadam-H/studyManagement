@@ -120,6 +120,15 @@ create table if not exists public.update_dismissals (
   post_id bigint not null references public.posts(id) on delete cascade,
   primary key (user_id, post_id)
 );
+-- the student's latest examination slip (one per student, replaced on upload). The IC number on the slip is never stored.
+create table if not exists public.exam_slips (
+  user_id uuid primary key default auth.uid() references public.profiles(id) on delete cascade,
+  session text check (length(session) <= 60),
+  index_no text check (length(index_no) <= 30),
+  exams jsonb not null default '[]' check (jsonb_typeof(exams) = 'array' and jsonb_array_length(exams) <= 30 and pg_column_size(exams) <= 20000),
+  notices jsonb not null default '[]' check (jsonb_typeof(notices) = 'array' and jsonb_array_length(notices) <= 30 and pg_column_size(notices) <= 20000),
+  uploaded_at timestamptz not null default now()
+);
 create table if not exists public.assignments (
   id bigint generated always as identity primary key,
   user_id uuid not null default auth.uid() references public.profiles(id) on delete cascade,
@@ -287,6 +296,14 @@ create policy posts_insert on public.posts for insert to authenticated
 drop policy if exists posts_delete on public.posts;
 create policy posts_delete on public.posts for delete to authenticated using (user_id = auth.uid() or public.is_admin());
 revoke update on public.posts from anon, authenticated;
+-- exam slips: your own (admins can read them to help)
+alter table public.exam_slips enable row level security;
+drop policy if exists exam_slips_read on public.exam_slips;
+create policy exam_slips_read on public.exam_slips for select to authenticated using (user_id = auth.uid() or public.is_admin());
+drop policy if exists exam_slips_write on public.exam_slips;
+create policy exam_slips_write on public.exam_slips for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+revoke all on public.exam_slips from anon;
+grant select, insert, update, delete on public.exam_slips to authenticated;
 -- dismissed Dashboard updates: each student sees and changes only their own
 alter table public.update_dismissals enable row level security;
 drop policy if exists dismissals_own on public.update_dismissals;
