@@ -39,7 +39,7 @@ Left menu, **Authentication**, then **Sign In / Providers** (or **Providers**), 
 1. Open the site, click **Register**, create your account with your student ID.
 2. In Supabase **SQL Editor** run (with your ID):
    ```sql
-   update public.profiles set role = 'admin' where student_id = '231021306';
+   update public.profiles set role = 'admin' where student_id = 'YOUR_STUDENT_ID';
    ```
 3. Reload the site. An **Admin** tab appears.
 

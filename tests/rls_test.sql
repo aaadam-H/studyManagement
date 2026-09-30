@@ -2,7 +2,7 @@
 \set ON_ERROR_STOP 1
 insert into auth.users(id, email, raw_user_meta_data) values
  ('00000000-0000-0000-0000-00000000000a', 'admin1@x', '{"student_id":"ADMIN1","name":"Admin"}'),
- ('00000000-0000-0000-0000-00000000000b', '231021306@x',  '{"student_id":"231021306","name":"Adam","phone":"012"}'),
+ ('00000000-0000-0000-0000-00000000000b', '200000001@x',  '{"student_id":"200000001","name":"Adam","phone":"012"}'),
  ('00000000-0000-0000-0000-00000000000c', '999@x',   '{"student_id":"999","name":"Eve"}');
 update public.profiles set role = 'admin' where student_id = 'ADMIN1';
 insert into auth.sessions(user_id) values ('00000000-0000-0000-0000-00000000000c'), ('00000000-0000-0000-0000-00000000000c');
@@ -19,7 +19,7 @@ create or replace function pg_temp.expect(cond boolean, what text) returns void 
 begin if not cond then raise exception 'FAIL - %', what; end if; raise notice 'ok - %', what; end $$;
 
 -- sign-up hardening: the student ID comes from the login email, not from free-form sign-up data
-insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e1', 'mallory1@x', '{"student_id":"231021306-x","name":"<b>M</b>","year":"abc"}');
+insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e1', 'mallory1@x', '{"student_id":"200000001-x","name":"<b>M</b>","year":"abc"}');
 select pg_temp.expect((select student_id || '|' || coalesce(year::text, 'null') from profiles where id = '00000000-0000-0000-0000-0000000000e1') = 'mallory1|null', 'sign-up: student ID taken from login, junk year ignored');
 select pg_temp.expect_fail($$insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e2', 'a b<i>@x', '{}')$$, 'sign-up with an invalid student ID');
 delete from auth.users where id = '00000000-0000-0000-0000-0000000000e1';
@@ -48,7 +48,7 @@ select pg_temp.expect_fail($$select admin_update_profile('00000000-0000-0000-000
 update settings set value = 'hacked' where key = 'timetable_url';
 select pg_temp.expect((select value from settings where key='timetable_url') <> 'hacked', 'student cannot edit settings');
 insert into posts(course_code, kind, title, due_date) values ('IMJ41203', 'assignment', 'Report 1', '2026-10-20');
-select pg_temp.expect((select author_sid from posts limit 1) = '231021306', 'post author stamped by trigger');
+select pg_temp.expect((select author_sid from posts limit 1) = '200000001', 'post author stamped by trigger');
 select pg_temp.expect_fail($$insert into posts(title) values ('general')$$, 'student general post');
 insert into posts(course_code, title, user_id) values ('IMJ41203', 'spoof', '00000000-0000-0000-0000-00000000000c');
 select pg_temp.expect((select count(*) from posts where user_id <> auth.uid()) = 0, 'cannot post as someone else');
@@ -102,16 +102,16 @@ reset role;
 select pg_temp.expect((select count(*) from auth.sessions where user_id = '00000000-0000-0000-0000-00000000000c') = 0, 'password reset signs the user out');
 select pg_temp.as_user('a');
 select pg_temp.expect_fail($$select admin_set_role(auth.uid(), 'student')$$, 'admin demoting self');
-select admin_update_profile('00000000-0000-0000-0000-00000000000b', '{"name":"Adam H","phone":"0194145201","year":""}');
-select pg_temp.expect((select name || phone from profiles where student_id='231021306') = 'Adam H0194145201', 'admin edits a user profile');
+select admin_update_profile('00000000-0000-0000-0000-00000000000b', '{"name":"Adam H","phone":"0120000000","year":""}');
+select pg_temp.expect((select name || phone from profiles where student_id='200000001') = 'Adam H0120000000', 'admin edits a user profile');
 select pg_temp.expect((select count(*) from enrollments where user_id='00000000-0000-0000-0000-00000000000b') = 1, 'admin can see a user''s subjects');
 select pg_temp.expect_fail($$select admin_update_profile('00000000-0000-0000-0000-00000000000b', '{"name":""}')$$, 'admin blanking a name');
 select admin_set_role('00000000-0000-0000-0000-00000000000b', 'admin');
 select admin_delete_user('00000000-0000-0000-0000-00000000000c');
-delete from posts where author_sid = '231021306';
+delete from posts where author_sid = '200000001';
 reset role;
 select pg_temp.expect((select encrypted_password is null from auth.users where id = '00000000-0000-0000-0000-00000000000c') is null, 'deleted user gone');
-select pg_temp.expect((select role from profiles where student_id='231021306') = 'admin', 'admin promoted user');
+select pg_temp.expect((select role from profiles where student_id='200000001') = 'admin', 'admin promoted user');
 select pg_temp.expect((select count(*) from posts) = 1, 'admin deleted a student post');
 
 -- calendar export

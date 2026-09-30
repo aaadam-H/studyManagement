@@ -593,4 +593,4 @@ grant execute on function public.is_admin(), public.is_enrolled(text), public.sa
 grant execute on function public.calendar_feed(uuid) to anon, authenticated;
 
 -- ---------- make yourself admin (run once after you register, with your own student ID) ----------
--- update public.profiles set role = 'admin' where student_id = '231021306';
+-- update public.profiles set role = 'admin' where student_id = 'YOUR_STUDENT_ID';
