@@ -49,6 +49,15 @@ do $$ begin
     update public.profiles set onboarded_at = now();
   end if;
 end $$;
+-- bulletin badge: posts newer than bulletin_seen_at count as new (existing accounts start at "now", so no flood of old posts);
+-- muted_subjects are course codes the student doesn't want counted
+alter table public.profiles add column if not exists bulletin_seen_at timestamptz not null default now();
+alter table public.profiles add column if not exists muted_subjects text[] not null default '{}';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'profiles_muted_subjects_check') then
+    alter table public.profiles add constraint profiles_muted_subjects_check check (cardinality(muted_subjects) <= 100);
+  end if;
+end $$;
 -- classes a student adds by hand (mix-and-match groups, subjects missing from the university page)
 create table if not exists public.my_classes (
   id bigint generated always as identity primary key,
@@ -211,7 +220,7 @@ create policy profiles_read on public.profiles for select to authenticated using
 drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
 revoke insert, update, delete on public.profiles from anon, authenticated;
-grant update (name, email, phone, program, faculty, year, semester, subgroup, onboarded_at) on public.profiles to authenticated;
+grant update (name, email, phone, program, faculty, year, semester, subgroup, onboarded_at, muted_subjects) on public.profiles to authenticated;
 
 -- settings, courses, classes: everyone logged in can read; only admins write
 drop policy if exists settings_read on public.settings;
@@ -559,6 +568,16 @@ begin
   return t;
 end $$;
 
+-- Bulletin opened: stamp with the server clock (a wrong phone clock can't hide or repeat new posts)
+create or replace function public.mark_bulletin_seen() returns timestamptz
+language plpgsql security definer set search_path = public as $$
+declare t timestamptz := now();
+begin
+  if auth.uid() is null then raise exception 'not logged in'; end if;
+  update profiles set bulletin_seen_at = t where id = auth.uid();
+  return t;
+end $$;
+
 -- Supabase grants EXECUTE on new functions to anon and authenticated by default; take it all back,
 -- then allow only the functions the app calls (internal helpers like build_ics stay private)
 -- Admin: reply to / change the status of a feedback item (a new reply shows as unread to the student)
@@ -588,7 +607,7 @@ grant execute on function public.is_admin(), public.is_enrolled(text), public.sa
   public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_set_role(uuid, text),
   public.admin_reset_password(uuid, text), public.admin_delete_user(uuid),
   public.admin_update_profile(uuid, jsonb), public.my_timetable(uuid), public.my_calendar_ics(),
-  public.reset_calendar_token(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb),
+  public.reset_calendar_token(), public.mark_bulletin_seen(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb),
   public.admin_update_feedback(bigint, text, text), public.admin_mark_feedback_read(bigint[]) to authenticated;
 grant execute on function public.calendar_feed(uuid) to anon, authenticated;
 

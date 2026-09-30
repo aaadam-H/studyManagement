@@ -20,7 +20,15 @@ if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('YOUR-PROJECT') || !window.su
   <p>Put your Supabase project URL and anon key in <code>web/config.js</code> (see SETUP.md), then reload.</p></div></div>`;
   throw new Error('StudyHub: missing Supabase config');
 }
-const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+// "Remember me": the login is kept in localStorage (survives closing the browser) or, if unticked, in sessionStorage (ends with the browser session).
+const remembered = () => store.get('remember') !== '0';
+const tryStore = (fn) => { try { return fn(); } catch { return null; } };
+const authStorage = {
+  getItem: (k) => tryStore(() => localStorage.getItem(k)) ?? tryStore(() => sessionStorage.getItem(k)),
+  setItem: (k, v) => { const [keep, drop] = remembered() ? [localStorage, sessionStorage] : [sessionStorage, localStorage]; tryStore(() => keep.setItem(k, v)); tryStore(() => drop.removeItem(k)); },
+  removeItem: (k) => { tryStore(() => localStorage.removeItem(k)); tryStore(() => sessionStorage.removeItem(k)); },
+};
+const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { storage: authStorage, persistSession: true, autoRefreshToken: true } });
 let me = null;
 
 // Run a Supabase query, throw a readable error on failure
@@ -136,9 +144,10 @@ function authScreen(mode = 'login') {
   const reg = mode === 'register';
   $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">${reg ? 'Create your student account' : 'Log in to your study planner'}</p>
   <form class="card" id="f">
-    <label>Student ID (matric no.) <span class="req">*</span></label><input name="student_id" required pattern="[A-Za-z0-9._-]{3,30}" autocomplete="username">
+    <label>Student ID (matric no.) <span class="req">*</span></label><input name="student_id" required pattern="[A-Za-z0-9._-]{3,30}" autocomplete="username" value="${reg ? '' : esc(store.get('last_sid') || '')}">
     ${reg ? profileFields({}) : ''}
     <label>Password ${reg ? '<span class="req">*</span> (min 8 characters)' : ''}</label><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">
+    <label class="remember"><input type="checkbox" name="remember" ${remembered() ? 'checked' : ''}> Remember me <span class="mute">(untick on a shared computer)</span></label>
     <div id="msg"></div><p><button>${reg ? 'Register' : 'Log in'}</button></p>
     <p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>
   </form>
@@ -150,13 +159,18 @@ function authScreen(mode = 'login') {
     <li>Track your assignments, grades and notes; see the academic calendar and current lecture week</li></ul>
     <p class="mute">New here? <a href="#" id="sw2">Create an account</a>; a short setup guide walks you through the rest.</p></div>`}
   ${FOOTER}</div>`;
+  const f = document.getElementById('f');
+  if (!reg && f.student_id.value) f.password.focus();
   const sw2 = document.getElementById('sw2');
   if (sw2) sw2.onclick = (e) => { e.preventDefault(); authScreen('register'); };
   document.getElementById('sw').onclick = (e) => { e.preventDefault(); authScreen(reg ? 'login' : 'register'); };
   document.getElementById('f').onsubmit = async (e) => {
     e.preventDefault();
     const msg = document.getElementById('msg');
-    const { student_id, password, ...info } = fd(e.target);
+    const { student_id, password, remember, ...info } = fd(e.target);
+    // decide where the session is saved before Supabase writes it
+    store.set('remember', remember ? '1' : '0');
+    if (remember) store.set('last_sid', student_id.trim()); else tryStore(() => localStorage.removeItem('last_sid'));
     try {
       if (reg) {
         const { data, error } = await sb.auth.signUp({ email: loginEmail(student_id), password, options: { data: { student_id: student_id.trim(), ...info } } });
@@ -191,18 +205,87 @@ async function render() {
   const routes = { ...ROUTES, ...(me.role === 'admin' ? { admin: ['Admin', pgAdmin] } : {}) };
   const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
   $app.innerHTML = `<div class="shell"><nav><h1>StudyHub</h1><small>Personal Management</small>
-    ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}${k === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : ''}</a>`).join('')}
+    ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}${k === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : k === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : ''}</a>`).join('')}
     <div class="who">${esc(me.name)}<br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo">Log out</a></div></nav><div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
   document.getElementById('lo').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); me = null; authScreen(); };
-  updateFeedbackBadge();
+  if (key !== 'bulletin') bulletinNewSince = null;
+  updateBadges();
   try { await fn(document.getElementById('main')); }
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 window.addEventListener('hashchange', render);
 sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; authScreen(); } });
 
+/* ---------------- search & filter ---------------- */
+const matches = (text, query) => { const t = text.toLowerCase(); return query.toLowerCase().split(/\s+/).every((w) => t.includes(w)); };
+// Long dropdowns become type-to-search. The real <select> stays in the form (hidden), so FormData and change handlers still work.
+function comboize(sel) {
+  if (sel.dataset.combo || sel.multiple || sel.hasAttribute('data-plain') || sel.options.length < 8) return;
+  sel.dataset.combo = '1';
+  const box = document.createElement('div'), inp = document.createElement('input'), list = document.createElement('div');
+  box.className = 'combo'; list.className = 'combo-list'; list.hidden = true; list.setAttribute('role', 'listbox');
+  Object.assign(inp, { type: 'text', className: 'combo-in', autocomplete: 'off', placeholder: 'Type to search...', required: sel.required });
+  inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-expanded', 'false');
+  sel.required = false; sel.hidden = true;
+  if (sel.style.width) box.style.width = sel.style.width;
+  sel.after(box); box.append(inp, list);
+  const label = () => { const o = sel.options[sel.selectedIndex]; return o && !o.disabled ? o.text : ''; };
+  let items = [], act = -1;
+  const draw = (typed) => {
+    items = [...sel.options].filter((o) => !o.disabled && (!typed || matches(o.text, inp.value)));
+    act = typed ? 0 : Math.max(0, items.findIndex((o) => o.selected));
+    list.innerHTML = items.map((o, i) => `<div class="opt${i === act ? ' act' : ''}${o.selected ? ' on' : ''}" data-i="${i}" role="option">${esc(o.text)}</div>`).join('') || '<div class="none">No matches</div>';
+    list.hidden = false; inp.setAttribute('aria-expanded', 'true');
+    list.querySelector('.act')?.scrollIntoView({ block: 'nearest' });
+  };
+  const move = (d) => { if (!items.length) return; act = (act + d + items.length) % items.length; list.querySelectorAll('.opt').forEach((x, i) => x.classList.toggle('act', i === act)); list.querySelector('.act').scrollIntoView({ block: 'nearest' }); };
+  const close = () => { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); inp.value = label(); inp.placeholder = 'Type to search...'; };
+  // opening clears the box (current choice shows as the placeholder) so typing starts a fresh search
+  const open = () => { inp.placeholder = label() || 'Type to search...'; inp.value = ''; draw(false); };
+  const pick = (o) => { const changed = !o.selected; o.selected = true; close(); if (changed) sel.dispatchEvent(new Event('change', { bubbles: true })); };
+  inp.value = label();
+  inp.onfocus = open;
+  inp.onclick = () => { if (list.hidden) open(); };
+  inp.oninput = () => draw(true);
+  inp.onblur = close;
+  inp.onkeydown = (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (list.hidden) open(); else move(e.key === 'ArrowDown' ? 1 : -1); }
+    else if (e.key === 'Enter' && !list.hidden) { e.preventDefault(); if (items[act]) pick(items[act]); }
+    else if (e.key === 'Escape') close();
+  };
+  list.onmousedown = (e) => e.preventDefault(); // keep focus in the input
+  list.onclick = (e) => { const o = e.target.closest('.opt'); if (o) { pick(items[+o.dataset.i]); inp.blur(); } };
+  sel.form?.addEventListener('reset', () => setTimeout(() => (inp.value = label())));
+}
+new MutationObserver((ms) => { for (const mu of ms) for (const n of mu.addedNodes) if (n.nodeType === 1) (n.tagName === 'SELECT' ? [n] : n.querySelectorAll('select')).forEach(comboize); })
+  .observe(document.body, { childList: true, subtree: true });
+
+// Search box (+ optional dropdown filters) for a list. Items are .qi; dropdown filter "k" matches an item's data-k; a .qg group hides when it has no visible items.
+const qSelect = (key, opts) => `<select data-qf="${key}" data-plain>${opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('')}</select>`;
+const filterBar = (placeholder, extra = '') => `<div class="qbar"><input type="search" data-qf="" placeholder="${esc(placeholder)}">${extra}<span class="mute qn"></span></div>`;
+function applyFilter(root) {
+  const ctl = [...root.querySelectorAll('[data-qf]')];
+  const text = ctl.filter((c) => !c.dataset.qf).map((c) => c.value).join(' ').trim();
+  const sels = ctl.filter((c) => c.dataset.qf && c.value);
+  const ok = (el, headHit) => (!text || headHit || matches(el.textContent, text)) && sels.every((c) => (el.dataset[c.dataset.qf] || '') === c.value);
+  const all = [...root.querySelectorAll('.qi')];
+  for (const i of all) if (!i.closest('.qg')) i.hidden = !ok(i, false);
+  root.querySelectorAll('.qg').forEach((g) => {
+    const headHit = !!text && matches(g.querySelector('h3')?.textContent || '', text);
+    let any = false;
+    g.querySelectorAll('.qi').forEach((i) => { i.hidden = !ok(i, headHit); any ||= !i.hidden; });
+    g.hidden = !any;
+  });
+  const n = root.querySelector('.qn');
+  if (n) n.textContent = text || sels.length ? `${all.filter((i) => !i.hidden).length} of ${all.length}` : '';
+}
+for (const ev of ['input', 'change']) document.addEventListener(ev, (e) => { if (e.target.closest?.('[data-qf]')) applyFilter(e.target.closest('main') || document); });
+
 /* ---------------- dashboard ---------------- */
-const clsHtml = (c) => `<div class="cls${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${[c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section)].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
+// lecture / lab / tutorial, for colour-coding (the university page and the manual form use several spellings)
+const kindKey = (k) => { k = (k || '').trim(); return /^(LAB|LABORATORY|MAKMAL|PRACTICAL|P)$/i.test(k) ? 'lab' : /^(TUTORIAL|T)$/i.test(k) ? 'tut' : /^(LECTURE|KULIAH|L)$/i.test(k) ? 'lec' : 'oth'; };
+const KIND_LEGEND = '<div class="legend"><span class="k-lec">Lecture</span><span class="k-lab">Lab</span><span class="k-tut">Tutorial</span></div>';
+const clsHtml = (c) => `<div class="cls k-${kindKey(c.kind)}${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${[c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section)].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
 async function pgDashboard(m) {
   const [tt, asg, bul, ac] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*').order('due_date')), getBulletin(), getAcademic()]);
   const dow = new Date().getDay() || 7, t = localISO();
@@ -244,8 +327,25 @@ async function updateFeedbackBadge() {
     document.title = count && me.role === 'admin' ? `(${count}) StudyHub` : 'StudyHub';
   } catch { el.hidden = true; }
 }
-setInterval(() => { if (document.visibilityState === 'visible') updateFeedbackBadge(); }, 60000);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateFeedbackBadge(); });
+// New bulletin posts since the student last opened the Bulletin: their subjects + general notices, minus muted subjects and their own posts
+async function updateBulletinBadge() {
+  const el = document.getElementById('bl-badge');
+  if (!el || !me) return;
+  try {
+    const muted = me.muted_subjects || [];
+    const codes = (await q(sb.from('enrollments').select('course_code').eq('user_id', me.id))).map((r) => r.course_code).filter((c) => !muted.includes(c));
+    let qy = sb.from('posts').select('id', { count: 'exact', head: true }).gt('created_at', me.bulletin_seen_at).neq('user_id', me.id);
+    qy = codes.length ? qy.or(`course_code.is.null,course_code.in.(${codes.join(',')})`) : qy.is('course_code', null);
+    const { count, error } = await qy;
+    if (error) throw error;
+    el.hidden = !count;
+    el.textContent = count > 99 ? '99+' : String(count || '');
+    el.title = `${count} new post${count === 1 ? '' : 's'}`;
+  } catch { el.hidden = true; }
+}
+const updateBadges = () => { updateFeedbackBadge(); updateBulletinBadge(); };
+setInterval(() => { if (document.visibilityState === 'visible') updateBadges(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateBadges(); });
 
 let fbFilter = 'active';
 async function pgFeedback(m) {
@@ -263,7 +363,8 @@ async function pgFeedback(m) {
     const counts = { new: newIds.length, open: all.filter((f) => f.status === 'open').length, resolved: all.filter((f) => f.status === 'resolved').length };
     html += `<h2>Feedback &amp; reports</h2><p class="sub">${counts.new} new · ${counts.open} open · ${counts.resolved} resolved</p>
     <div class="btns fb-filter">${[['active', 'New & open'], ['resolved', 'Resolved'], ['all', 'All']].map(([k, t]) => `<button type="button" class="${fbFilter === k ? '' : 'ghost'}" data-f="${k}">${t}</button>`).join('')}</div>
-    ${shown.map((f) => `<div class="card fb ${f.status === 'new' ? 'fb-new' : ''}">
+    ${filterBar('Search feedback')}
+    ${shown.map((f) => `<div class="card qi fb ${f.status === 'new' ? 'fb-new' : ''}">
       <div class="fb-head"><span class="tag ${f.kind === 'report' ? 'urgent' : f.kind === 'bug' ? 'exam' : ''}">${esc(FB_KIND[f.kind] || f.kind)}</span>
         ${f.status === 'new' ? '<span class="tag new">NEW</span>' : ''} <b>${esc(f.subject)}</b></div>
       <p class="mute">From ${esc(f.profiles?.name || 'deleted user')} (${esc(f.profiles?.student_id || '-')}) · ${esc(new Date(f.created_at).toLocaleString())}${f.page ? ' · page: ' + esc(f.page) : ''}</p>
@@ -468,7 +569,7 @@ function weekHtml(tt) {
     const cs = tt.classes.filter((c) => c.day === d);
     if (cs.length) html += `<div class="card day"><h3>${DAYN[d]}</h3>${cs.map(clsHtml).join('')}</div>`;
   }
-  return html || '<div class="card mute">No classes to show yet.</div>';
+  return html ? KIND_LEGEND + html : '<div class="card mute">No classes to show yet.</div>';
 }
 // read-only view (admin looking at a student)
 function timetableHtml(tt) {
@@ -658,8 +759,17 @@ async function pgCourses(m) {
 }
 
 /* ---------------- bulletin ---------------- */
+// the seen-time from before this visit to the Bulletin, so NEW tags stay while the student is on the page
+let bulletinNewSince = null;
+async function saveMuted(list) {
+  await q(sb.from('profiles').update({ muted_subjects: list }).eq('id', me.id));
+  me.muted_subjects = list;
+}
 async function pgBulletin(m) {
   const b = await getBulletin();
+  bulletinNewSince ||= me.bulletin_seen_at;
+  const muted = me.muted_subjects || [];
+  const isNew = (p) => p.user_id !== me.id && p.created_at > bulletinNewSince;
   let filter = 'mine';
   try { filter = sessionStorage.getItem('bfilter') || 'mine'; } catch {}
   const list = b.posts.filter((p) => filter === 'all' || !p.course_code || b.mine.includes(p.course_code));
@@ -672,10 +782,20 @@ async function pgBulletin(m) {
   <div><label>Due date (optional)</label><input type="date" name="due_date"></div></div>
   <label>Title</label><input name="title" required maxlength="200"><label>Details</label><textarea name="body" rows="3" maxlength="4000"></textarea><div id="pmsg"></div><p><button>Post</button></p></form>
   ${postable.length || me.role === 'admin' ? '' : '<p class="mute">Register your courses to post to their boards.</p>'}</div>
-  <p><label style="display:inline">Show </label><select id="bf" style="width:auto"><option value="mine" ${filter === 'mine' ? 'selected' : ''}>My subjects</option><option value="all" ${filter === 'all' ? 'selected' : ''}>All subjects</option></select></p>
-  ${Object.keys(groups).sort().map((code) => `<div class="card"><h3>${code ? esc(code) + ' <span class="mute">' + esc(groups[code][0].course_name || '') + '</span>' : 'General'}</h3>
-  ${groups[code].map((p) => `<div class="post"><h4><span class="tag ${esc(p.kind)}">${esc(p.kind)}</span> ${esc(p.title)} ${p.due_date ? `<span class="tag">due ${esc(p.due_date)}</span>` : ''}</h4>${p.body ? `<p>${esc(p.body)}</p>` : ''}
-  <span class="mute">${esc(p.author_name)} (${esc(p.author_sid)}) · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || me.role === 'admin' ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('')}</div>`).join('') || '<div class="card mute">No posts yet.</div>'}`;
+  ${filterBar('Search posts, subjects, authors...', `<select id="bf" data-plain><option value="mine" ${filter === 'mine' ? 'selected' : ''}>My subjects</option><option value="all" ${filter === 'all' ? 'selected' : ''}>All subjects</option></select>${qSelect('kind', [['', 'All types'], ['info', 'Info'], ['assignment', 'Assignments'], ['exam', 'Exams / tests'], ['urgent', 'Urgent']])}`)}
+  ${muted.length ? `<p class="mute muted-list">Muted (not counted in the menu badge): ${muted.map((c) => `<span class="tag">${esc(c)} <a href="#" data-unmute="${esc(c)}" title="Unmute">×</a></span>`).join(' ')}</p>` : ''}
+  ${Object.keys(groups).sort((a, b) => muted.includes(a) - muted.includes(b) || a.localeCompare(b)).map((code) => {
+    const off = muted.includes(code), fresh = groups[code].filter(isNew).length;
+    const posts = groups[code].map((p) => `<div class="post qi" data-kind="${esc(p.kind)}"><h4>${isNew(p) ? '<span class="tag new">NEW</span> ' : ''}<span class="tag ${esc(p.kind)}">${esc(p.kind)}</span> ${esc(p.title)} ${p.due_date ? `<span class="tag">due ${esc(p.due_date)}</span>` : ''}</h4>${p.body ? `<p>${esc(p.body)}</p>` : ''}
+  <span class="mute">${esc(p.author_name)} (${esc(p.author_sid)}) · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || me.role === 'admin' ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('');
+    return `<div class="card qg${off ? ' muted' : ''}"><div class="gh"><h3>${code ? esc(code) + ' <span class="mute">' + esc(groups[code][0].course_name || '') + '</span>' : 'General'}${fresh && !off ? ` <span class="tag new">${fresh} new</span>` : ''}</h3>
+      ${code ? `<button class="sm ghost" data-${off ? 'unmute' : 'mute'}="${esc(code)}" title="${off ? 'Count new posts again' : 'Stop counting new posts from this subject'}">${off ? 'Unmute' : 'Mute'}</button>` : ''}</div>
+      ${off ? `<details><summary>Muted · show ${groups[code].length} post${groups[code].length === 1 ? '' : 's'}</summary>${posts}</details>` : posts}</div>`;
+  }).join('') || '<div class="card mute">No posts yet.</div>'}`;
+  m.querySelectorAll('[data-mute]').forEach((x) => (x.onclick = async () => { await saveMuted([...new Set([...muted, x.dataset.mute])]); render(); }));
+  m.querySelectorAll('[data-unmute]').forEach((x) => (x.onclick = async (e) => { e.preventDefault(); await saveMuted(muted.filter((c) => c !== x.dataset.unmute)); render(); }));
+  // opened: everything up to now is seen (the NEW tags stay until the student leaves the page)
+  q(sb.rpc('mark_bulletin_seen')).then((t) => { me.bulletin_seen_at = t; updateBulletinBadge(); }).catch(() => {});
   document.getElementById('bf').onchange = (e) => { try { sessionStorage.setItem('bfilter', e.target.value); } catch {} render(); };
   m.querySelectorAll('[data-del]').forEach((x) => (x.onclick = async () => { if (confirm('Delete this post?')) { await q(sb.from('posts').delete().eq('id', x.dataset.del)); render(); } }));
   document.getElementById('np').onsubmit = async (e) => {
@@ -690,7 +810,8 @@ async function pgAssignments(m) {
   const [list, cs] = await Promise.all([q(sb.from('assignments').select('*').order('done').order('due_date', { nullsFirst: false })), myCourses()]);
   m.innerHTML = `<h2>Assignments</h2><p class="sub">${list.filter((a) => !a.done).length} pending, ${list.filter((a) => a.done).length} completed</p>
   <div class="card"><form id="f" class="row"><div><label>Title</label><input name="title" required></div><div><label>Subject</label><select name="course_code">${courseOptions(cs)}</select></div><div><label>Due</label><input type="date" name="due_date"></div><button>Add</button></form></div>
-  <div class="card">${list.map((a) => `<div class="post"><label style="display:flex;gap:8px;align-items:center;margin:0;color:var(--ink)"><input type="checkbox" style="width:auto" data-done="${a.id}" ${a.done ? 'checked' : ''}> <span style="${a.done ? 'text-decoration:line-through;opacity:.6' : ''}"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${a.due_date ? 'due ' + esc(a.due_date) : ''}</span></span></label> <button class="sm ghost" data-del="${a.id}">Delete</button></div>`).join('') || '<p class="mute">No assignments yet.</p>'}</div>`;
+  ${list.length ? filterBar('Search assignments', qSelect('st', [['', 'All'], ['pending', 'Pending'], ['done', 'Completed']])) : ''}
+  <div class="card">${list.map((a) => `<div class="post qi" data-st="${a.done ? 'done' : 'pending'}"><label style="display:flex;gap:8px;align-items:center;margin:0;color:var(--ink)"><input type="checkbox" style="width:auto" data-done="${a.id}" ${a.done ? 'checked' : ''}> <span style="${a.done ? 'text-decoration:line-through;opacity:.6' : ''}"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${a.due_date ? 'due ' + esc(a.due_date) : ''}</span></span></label> <button class="sm ghost" data-del="${a.id}">Delete</button></div>`).join('') || '<p class="mute">No assignments yet.</p>'}</div>`;
   document.getElementById('f').onsubmit = async (e) => { e.preventDefault(); await q(sb.from('assignments').insert(fd(e.target))); render(); };
   m.querySelectorAll('[data-done]').forEach((c) => (c.onchange = async () => { await q(sb.from('assignments').update({ done: c.checked }).eq('id', c.dataset.done)); render(); }));
   m.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { await q(sb.from('assignments').delete().eq('id', b.dataset.del)); render(); }));
@@ -702,10 +823,11 @@ async function pgGrades(m) {
   for (const g of list) (byCourse[g.course_code || 'Other'] ||= []).push(g);
   m.innerHTML = `<h2>Grades</h2><p class="sub">Track your academic performance. Weight is % of the final mark.</p>
   <div class="card"><form id="f" class="row"><div><label>Subject</label><select name="course_code">${courseOptions(cs)}</select></div><div><label>Item</label><input name="item" required placeholder="Quiz 1"></div><div><label>Score</label><input type="number" step="any" name="score"></div><div><label>Out of</label><input type="number" step="any" name="max_score"></div><div><label>Weight %</label><input type="number" step="any" name="weight"></div><button>Add</button></form></div>
+  ${list.length ? filterBar('Search grades') : ''}
   ${Object.entries(byCourse).map(([code, gs]) => {
     const w = gs.filter((g) => g.weight && pct(g) != null);
     const tot = w.reduce((a, g) => a + (pct(g) * g.weight) / 100, 0), tw = w.reduce((a, g) => a + Number(g.weight), 0);
-    return `<div class="card"><h3>${esc(code)} ${tw ? `<span class="tag">${tot.toFixed(1)} / ${tw} weighted marks</span>` : ''}</h3><table><tr><th>Item</th><th>Score</th><th>%</th><th>Weight</th><th></th></tr>${gs.map((g) => `<tr><td>${esc(g.item)}</td><td>${g.score ?? ''}${g.max_score ? ' / ' + g.max_score : ''}</td><td>${pct(g) == null ? '' : pct(g).toFixed(1)}</td><td>${g.weight ?? ''}</td><td><button class="sm ghost" data-del="${g.id}">Delete</button></td></tr>`).join('')}</table></div>`;
+    return `<div class="card qg"><h3>${esc(code)} ${tw ? `<span class="tag">${tot.toFixed(1)} / ${tw} weighted marks</span>` : ''}</h3><table><tr><th>Item</th><th>Score</th><th>%</th><th>Weight</th><th></th></tr>${gs.map((g) => `<tr class="qi"><td>${esc(g.item)}</td><td>${g.score ?? ''}${g.max_score ? ' / ' + g.max_score : ''}</td><td>${pct(g) == null ? '' : pct(g).toFixed(1)}</td><td>${g.weight ?? ''}</td><td><button class="sm ghost" data-del="${g.id}">Delete</button></td></tr>`).join('')}</table></div>`;
   }).join('') || '<div class="card mute">No grades recorded yet.</div>'}`;
   document.getElementById('f').onsubmit = async (e) => { e.preventDefault(); await q(sb.from('grades').insert(fd(e.target))); render(); };
   m.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { await q(sb.from('grades').delete().eq('id', b.dataset.del)); render(); }));
@@ -714,7 +836,8 @@ async function pgNotes(m) {
   const [list, cs] = await Promise.all([q(sb.from('notes').select('*').order('id', { ascending: false })), myCourses()]);
   m.innerHTML = `<h2>Notes</h2><p class="sub">Your private study notes.</p>
   <div class="card"><form id="f"><div class="row"><div><label>Title</label><input name="title" required></div><div><label>Subject</label><select name="course_code">${courseOptions(cs)}</select></div></div><label>Note</label><textarea name="body" rows="4"></textarea><p><button>Save note</button></p></form></div>
-  ${list.map((n) => `<div class="card"><h3>${esc(n.title)} <span class="tag">${esc(n.course_code || '')}</span></h3><p style="white-space:pre-wrap">${esc(n.body)}</p><button class="sm ghost" data-del="${n.id}">Delete</button></div>`).join('') || '<div class="card mute">No notes yet.</div>'}`;
+  ${list.length ? filterBar('Search notes') : ''}
+  ${list.map((n) => `<div class="card qi"><h3>${esc(n.title)} <span class="tag">${esc(n.course_code || '')}</span></h3><p style="white-space:pre-wrap">${esc(n.body)}</p><button class="sm ghost" data-del="${n.id}">Delete</button></div>`).join('') || '<div class="card mute">No notes yet.</div>'}`;
   document.getElementById('f').onsubmit = async (e) => { e.preventDefault(); await q(sb.from('notes').insert(fd(e.target))); render(); };
   m.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { await q(sb.from('notes').delete().eq('id', b.dataset.del)); render(); }));
 }
@@ -728,18 +851,37 @@ async function pgCalendar(m) {
   const due = {};
   for (const a of asg) if (a.due_date && !a.done) (due[a.due_date] ||= []).push('📝 ' + a.title);
   for (const p of bul.posts) if (p.due_date && (!p.course_code || bul.mine.includes(p.course_code))) (due[p.due_date] ||= []).push(`📌 ${p.course_code || ''} ${p.title}`);
-  let cells = '';
+  let cells = '', prevLabel = '';
+  const days = {};
   for (let i = 0; i < 42; i++) {
     const d = new Date(start); d.setDate(start.getDate() + i);
     const info = ac.day(localISO(d));
     const cls = info.classes ? tt.classes.filter((c) => c.day === (d.getDay() || 7)) : [];
-    const tag = info.st && info.st.kind !== 'lecture' ? `<div class="e per" title="${esc(info.st.semester)}">${esc(info.st.label)}</div>` : '';
-    cells += `<div class="d ${d.getMonth() !== mo ? 'off' : ''} ${localISO(d) === localISO() ? 'today' : ''} ${info.st && info.st.kind !== 'lecture' ? 'brk' : ''}"><b>${d.getDate()}</b>${info.hol.map((e) => `<div class="e holi" title="${esc(e.title)}">${esc(e.title)}</div>`).join('')}${tag}${cls.map((c) => `<div class="e" title="${esc(c.start)}-${esc(c.end)} ${esc(c.course_code)} ${esc(c.course_name || '')} ${esc(c.venue || '')}"><b>${esc(c.start)}</b> ${esc(c.course_name || c.course_code)}${c.course_name ? ` <span class="mute">${esc(c.course_code)}</span>` : ''}</div>`).join('')}${(due[localISO(d)] || []).map((t) => `<div class="e" style="color:var(--warn)" title="${esc(t)}">${esc(t)}</div>`).join('')}</div>`;
+    const iso = localISO(d), label = info.st && info.st.kind !== 'lecture' ? info.st.label : '';
+    days[iso] = { d, info, cls, due: due[iso] || [] };
+    const tag = label && label !== prevLabel ? `<div class="e per" title="${esc(info.st.semester)}">${esc(label)}</div>` : '';
+    prevLabel = label;
+    cells += `<div class="d ${d.getMonth() !== mo ? 'off' : ''} ${iso === localISO() ? 'today' : ''} ${label ? 'brk' : ''}" data-iso="${iso}"><b>${d.getDate()}</b>${info.hol.map((e) => `<div class="e holi" title="${esc(e.title)}">${esc(e.title)}</div>`).join('')}${tag}${cls.map((c) => `<div class="e c k-${kindKey(c.kind)}" title="${esc(c.start)}-${esc(c.end)} ${esc(c.course_code)} ${esc(c.course_name || '')} ${esc(c.kind || '')} ${esc(c.venue || '')}"><b>${esc(c.start)}</b> <span class="nm">${esc(c.course_name || c.course_code)}</span></div>`).join('')}${(due[iso] || []).map((t) => `<div class="e due" title="${esc(t)}">${esc(t)}</div>`).join('')}</div>`;
   }
   m.innerHTML = `<h2>Calendar</h2><p class="sub">Classes repeat weekly during lecture weeks; holidays and breaks come from the <a href="#/academic">academic calendar</a>; deadlines from your assignments and the bulletin.</p>
   <div class="row" style="align-items:center;margin-bottom:10px"><button class="ghost" id="pv">&lt;</button><b style="flex:2;text-align:center">${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b><button class="ghost" id="nx">&gt;</button><button class="ghost" id="td">Today</button></div>
-  <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="h">${d}</div>`).join('')}${cells}</div>`;
+  ${KIND_LEGEND}
+  <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="h">${d}</div>`).join('')}${cells}</div>
+  <div class="card" id="calday"></div>`;
   const go = (n) => () => { calMonth = n === 0 ? new Date(new Date().getFullYear(), new Date().getMonth(), 1) : new Date(y, mo + n, 1); render(); };
+  // full details for one day under the grid (the cells only show a short line per item)
+  const showDay = (iso) => {
+    const x = days[iso]; if (!x) return;
+    m.querySelectorAll('.cal .d').forEach((el) => el.classList.toggle('sel', el.dataset.iso === iso));
+    const st = x.info.st;
+    document.getElementById('calday').innerHTML = `<h3>${x.d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
+      ${st ? `<p class="mute">${esc(statusText(st))}</p>` : ''}
+      ${x.info.hol.map((e) => `<p class="err">${esc(e.title)}</p>`).join('')}
+      ${x.cls.length ? x.cls.map(clsHtml).join('') : '<p class="mute">No classes.</p>'}
+      ${x.due.length ? `<h4>Due</h4>${x.due.map((t) => `<div class="post">${esc(t)}</div>`).join('')}` : ''}`;
+  };
+  m.querySelector('.cal').onclick = (e) => { const c = e.target.closest('.d[data-iso]'); if (c) showDay(c.dataset.iso); };
+  showDay(days[localISO()] ? localISO() : localISO(new Date(y, mo, 1)));
   document.getElementById('pv').onclick = go(-1); document.getElementById('nx').onclick = go(1); document.getElementById('td').onclick = go(0);
 }
 
@@ -817,8 +959,8 @@ async function pgAdmin(m) {
   <div class="row"><div><label>Semester start</label><input type="date" name="semester_start" value="${esc(s.semester_start)}"></div><div><label>Semester end</label><input type="date" name="semester_end" value="${esc(s.semester_end)}"></div></div>
   <div class="row"><div><label>Mid-semester break start <span class="mute">(optional)</span></label><input type="date" name="break_start" value="${esc(s.break_start)}"></div><div><label>Break end <span class="mute">(optional)</span></label><input type="date" name="break_end" value="${esc(s.break_end)}"></div></div>
   <div id="semm"></div><p><button>Save dates</button></p></form>
-  <div class="card"><h3>Users (${users.length})</h3><table><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
-  ${users.map((u) => `<tr><td>${esc(u.student_id)}</td><td>${esc(u.name)}<br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td>${esc(u.program || '')}</td><td>${u.courses}</td><td>${esc(u.role)}</td><td><a class="btn sm" href="#/admin/user/${u.id}">View</a> ${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button> <button class="sm ghost" data-pw="${u.id}">Reset pw</button> <button class="sm danger" data-del="${u.id}">Delete</button>`}</td></tr>`).join('')}</table></div>`;
+  <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<table><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
+  ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td>${esc(u.student_id)}</td><td>${esc(u.name)}<br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td>${esc(u.program || '')}</td><td>${u.courses}</td><td>${esc(u.role)}</td><td><a class="btn sm" href="#/admin/user/${u.id}">View</a> ${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button> <button class="sm ghost" data-pw="${u.id}">Reset pw</button> <button class="sm danger" data-del="${u.id}">Delete</button>`}</td></tr>`).join('')}</table></div>`;
   const tm = document.getElementById('tm');
   const saveLink = async () => {
     const url = document.querySelector('#tl [name=timetable_url]').value.trim();
