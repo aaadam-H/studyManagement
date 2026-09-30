@@ -132,16 +132,35 @@ async function getBulletin() {
 
 /* ---------------- profile fields (register, profile, admin edit) ---------------- */
 // Required: name, email, phone, programme. Optional: faculty, year, semester.
+// Email is typed as "name" @ "domain"; the domain box starts as the student mail domain but can be changed.
+// A hidden field holds the joined address, so the forms still submit a single email value.
+const STUDENT_MAIL = CFG.STUDENT_EMAIL_DOMAIN || 'studentmail.unimap.edu.my';
 function profileFields(u, emailName = 'contact_email') {
   const R = '<span class="req">*</span>', O = '<span class="mute">(optional)</span>';
+  const at = (u.email || '').indexOf('@');
+  const [local, domain] = at > 0 ? [u.email.slice(0, at), u.email.slice(at + 1)] : ['', STUDENT_MAIL];
   return `<label>Full name ${R}</label><input name="name" value="${esc(u.name)}" required maxlength="120">
-  <div class="row"><div><label>Email ${R}</label><input name="${emailName}" type="email" value="${esc(u.email)}" required maxlength="120"></div>
-  <div><label>Phone ${R}</label><input name="phone" type="tel" value="${esc(u.phone)}" required pattern="[0-9+ \\-]{9,15}" title="e.g. 012-3456789" maxlength="20"></div></div>
-  <label>Programme ${R}</label><input name="program" value="${esc(u.program)}" required placeholder="e.g. Kejuruteraan Komputer" maxlength="120">
+  <label>Email ${R}</label><div class="email-in">
+    <input class="em-local" value="${esc(local)}" required maxlength="64" pattern="[A-Za-z0-9._%+\\-]+" title="The part before @" placeholder="your email name" aria-label="Email, part before @" autocomplete="off"><span>@</span>
+    <input class="em-domain" value="${esc(domain)}" required maxlength="60" pattern="[A-Za-z0-9\\-]+(\\.[A-Za-z0-9\\-]+)+" title="e.g. ${esc(STUDENT_MAIL)}" aria-label="Email, part after @"></div>
+  <input type="hidden" name="${emailName}" value="${esc(u.email || '')}">
+  <div class="row"><div><label>Phone ${R}</label><input name="phone" type="tel" value="${esc(u.phone)}" required pattern="[0-9+ \\-]{9,15}" title="e.g. 012-3456789" maxlength="20"></div>
+  <div><label>Programme ${R}</label><input name="program" value="${esc(u.program)}" required placeholder="e.g. Kejuruteraan Komputer" maxlength="120"></div></div>
   <div class="row"><div><label>Faculty / school ${O}</label><input name="faculty" value="${esc(u.faculty)}" maxlength="120"></div>
   <div><label>Year ${O}</label><input name="year" type="number" min="1" max="6" value="${esc(u.year)}"></div>
   <div><label>Semester ${O}</label><input name="semester" value="${esc(u.semester)}" placeholder="e.g. Sem 1 2026/2027" maxlength="40"></div></div>`;
 }
+
+document.addEventListener('input', (e) => {
+  const box = e.target.closest?.('.email-in');
+  if (!box) return;
+  const loc = box.querySelector('.em-local'), dom = box.querySelector('.em-domain');
+  // a full address pasted into the first box is split across both
+  if (loc.value.includes('@')) { const [a, ...b] = loc.value.split('@'); loc.value = a.trim(); if (b.join('@').trim()) dom.value = b.join('@').trim(); }
+  if (dom.value.startsWith('@')) dom.value = dom.value.slice(1);
+  const l = loc.value.trim(), d = dom.value.trim();
+  box.nextElementSibling.value = l && d ? `${l}@${d}` : '';
+});
 
 /* ---------------- auth screens ---------------- */
 function authScreen(mode = 'login') {

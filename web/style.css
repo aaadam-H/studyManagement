@@ -119,3 +119,8 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 .cal .e.exam{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad);border-left:3px solid var(--bad);padding-left:4px}
 .cls.exam{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--bg))}
 .exams-card{border-left:4px solid var(--bad)}
+/* email: name @ domain */
+.email-in{display:flex;align-items:center;gap:6px}.email-in span{color:var(--mute)}
+.email-in .em-local{flex:2 1 0;min-width:80px}.email-in .em-domain{flex:3 1 0;min-width:120px;color:var(--mute)}.email-in .em-domain:focus{color:var(--ink)}
+.email-in .em-local{flex:1 1 0}.email-in .em-domain{flex:0 1 auto;width:calc(26ch + 22px);min-width:0;max-width:68%}
+@media(max-width:480px){.email-in{flex-wrap:wrap}.email-in .em-local{flex:1 1 100%}.email-in .em-domain{flex:1 1 0;width:auto;max-width:none}}
