@@ -175,7 +175,7 @@ function authScreen(mode = 'login') {
 /* ---------------- shell ---------------- */
 const ROUTES = {
   '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
-  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], help: ['Help', pgHelp],
+  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], help: ['Help', pgHelp],
 };
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
@@ -187,13 +187,14 @@ async function render() {
   if (!me) return authScreen();
   let key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
   // first visit: send new students through the setup guide (they can still open Help)
-  if (needsOnboarding() && key !== 'welcome' && key !== 'help') { history.replaceState(null, '', '#/welcome'); key = 'welcome'; }
+  if (needsOnboarding() && !['welcome', 'help', 'feedback'].includes(key)) { history.replaceState(null, '', '#/welcome'); key = 'welcome'; }
   const routes = { ...ROUTES, ...(me.role === 'admin' ? { admin: ['Admin', pgAdmin] } : {}) };
   const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
   $app.innerHTML = `<div class="shell"><nav><h1>StudyHub</h1><small>Personal Management</small>
-    ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}</a>`).join('')}
+    ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}${k === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : ''}</a>`).join('')}
     <div class="who">${esc(me.name)}<br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo">Log out</a></div></nav><div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
   document.getElementById('lo').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); me = null; authScreen(); };
+  updateFeedbackBadge();
   try { await fn(document.getElementById('main')); }
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
@@ -223,6 +224,102 @@ async function pgDashboard(m) {
 `;
   const gsx = document.getElementById('gsx');
   if (gsx) gsx.onclick = (e) => { e.preventDefault(); store.set('sh_gs_hide_' + me.id, '1'); render(); };
+}
+
+/* ---------------- feedback & reports ---------------- */
+const FB_KIND = { feedback: 'Feedback / suggestion', bug: 'Bug / something not working', report: 'Report a post or user', other: 'Other' };
+const FB_STATUS = { new: 'New', open: 'Open', resolved: 'Resolved' };
+// Admins: number of new items. Students: replies they haven't read yet.
+async function updateFeedbackBadge() {
+  const el = document.getElementById('fb-badge');
+  if (!el || !me) return;
+  try {
+    const qy = sb.from('feedback').select('id', { count: 'exact', head: true });
+    const { count, error } = me.role === 'admin' ? await qy.eq('status', 'new')
+      : await qy.eq('user_id', me.id).not('admin_reply', 'is', null).is('reply_seen_at', null);
+    if (error) throw error;
+    el.hidden = !count;
+    el.textContent = count > 99 ? '99+' : String(count || '');
+    el.title = me.role === 'admin' ? `${count} new feedback / reports` : `${count} new repl${count === 1 ? 'y' : 'ies'}`;
+    document.title = count && me.role === 'admin' ? `(${count}) StudyHub` : 'StudyHub';
+  } catch { el.hidden = true; }
+}
+setInterval(() => { if (document.visibilityState === 'visible') updateFeedbackBadge(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateFeedbackBadge(); });
+
+let fbFilter = 'active';
+async function pgFeedback(m) {
+  const parts = location.hash.split('/');
+  const reportId = parts[2] === 'report' && /^\d+$/.test(parts[3] || '') ? +parts[3] : null;
+  const [mine, reported] = await Promise.all([
+    q(sb.from('feedback').select('*').eq('user_id', me.id).order('created_at', { ascending: false })),
+    reportId ? q(sb.from('posts').select('id,title,course_code,author_name').eq('id', reportId).maybeSingle()) : null,
+  ]);
+  let html = '';
+  if (me.role === 'admin') {
+    const all = await q(sb.from('feedback').select('*, profiles(name, student_id)').order('created_at', { ascending: false }).limit(300));
+    const newIds = all.filter((f) => f.status === 'new').map((f) => f.id);
+    const shown = all.filter((f) => fbFilter === 'all' || (fbFilter === 'active' ? f.status !== 'resolved' : f.status === fbFilter));
+    const counts = { new: newIds.length, open: all.filter((f) => f.status === 'open').length, resolved: all.filter((f) => f.status === 'resolved').length };
+    html += `<h2>Feedback &amp; reports</h2><p class="sub">${counts.new} new · ${counts.open} open · ${counts.resolved} resolved</p>
+    <div class="btns fb-filter">${[['active', 'New & open'], ['resolved', 'Resolved'], ['all', 'All']].map(([k, t]) => `<button type="button" class="${fbFilter === k ? '' : 'ghost'}" data-f="${k}">${t}</button>`).join('')}</div>
+    ${shown.map((f) => `<div class="card fb ${f.status === 'new' ? 'fb-new' : ''}">
+      <div class="fb-head"><span class="tag ${f.kind === 'report' ? 'urgent' : f.kind === 'bug' ? 'exam' : ''}">${esc(FB_KIND[f.kind] || f.kind)}</span>
+        ${f.status === 'new' ? '<span class="tag new">NEW</span>' : ''} <b>${esc(f.subject)}</b></div>
+      <p class="mute">From ${esc(f.profiles?.name || 'deleted user')} (${esc(f.profiles?.student_id || '-')}) · ${esc(new Date(f.created_at).toLocaleString())}${f.page ? ' · page: ' + esc(f.page) : ''}</p>
+      <p class="fb-msg">${esc(f.message)}</p>
+      ${f.post_id ? `<p class="fb-post">Reported post: <b>${esc(f.post_title || '')}</b> <a href="#/bulletin">Open bulletin</a> <button type="button" class="sm danger" data-delpost="${f.post_id}">Delete post</button></p>`
+        : f.post_title ? `<p class="fb-post mute">Reported post (already deleted): ${esc(f.post_title)}</p>` : ''}
+      <form class="fb-reply" data-id="${f.id}"><label>Reply to the student <span class="mute">(they see it on their Feedback page)</span></label>
+        <textarea name="reply" rows="2" maxlength="4000">${esc(f.admin_reply || '')}</textarea>
+        <div class="row"><div><label>Status</label><select name="status">${Object.entries(FB_STATUS).map(([k, t]) => `<option value="${k}" ${(f.status === 'new' ? 'open' : f.status) === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+          <button>Save</button><button type="button" class="ghost" data-delfb="${f.id}">Delete</button></div>
+        ${f.admin_reply ? `<p class="mute">Replied ${esc(new Date(f.replied_at).toLocaleString())}${f.reply_seen_at ? ' · seen by the student' : ' · not seen yet'}</p>` : ''}<div class="fbm"></div></form></div>`).join('') || '<div class="card mute">Nothing here.</div>'}
+    <h3 style="margin-top:28px">Send feedback yourself</h3>`;
+    // viewing the inbox marks new items as read (they stay open until resolved)
+    if (newIds.length) q(sb.rpc('admin_mark_feedback_read', { ids: newIds })).then(updateFeedbackBadge).catch(() => {});
+  } else {
+    html += `<h2>Feedback &amp; reports</h2><p class="sub">Tell us what to improve, report a problem, or report a post. Only the admins can read what you send.</p>`;
+  }
+  const unseen = mine.filter((f) => f.admin_reply && !f.reply_seen_at).map((f) => f.id);
+  html += `<form class="card" id="fbf">
+    ${reported ? `<p class="fb-post">Reporting the post <b>${esc(reported.title)}</b> by ${esc(reported.author_name || '')} ${reported.course_code ? '(' + esc(reported.course_code) + ')' : ''}</p>` : ''}
+    <div class="row"><div><label>Type</label><select name="kind">${Object.entries(FB_KIND).map(([k, t]) => `<option value="${k}" ${(reported ? 'report' : 'feedback') === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
+    <label>Subject</label><input name="subject" required maxlength="200" value="${reported ? esc('Report: ' + reported.title).slice(0, 200) : ''}">
+    <label>Details</label><textarea name="message" rows="4" required maxlength="4000" placeholder="${reported ? 'What is wrong with this post?' : 'What happened, or what would you like?'}"></textarea>
+    <div id="fbm"></div><p><button>Send</button></p></form>
+  ${me.role === 'admin' ? '' : `<h3>Your messages</h3>${mine.map((f) => `<div class="card fb ${unseen.includes(f.id) ? 'fb-new' : ''}">
+    <div class="fb-head"><span class="tag">${esc(FB_KIND[f.kind] || f.kind)}</span> <b>${esc(f.subject)}</b>
+      <span class="tag ${f.status === 'resolved' ? 'done' : ''}">${f.status === 'resolved' ? 'Resolved' : 'Received'}</span></div>
+    <p class="mute">${esc(new Date(f.created_at).toLocaleString())}</p><p class="fb-msg">${esc(f.message)}</p>
+    ${f.admin_reply ? `<div class="fb-answer">${unseen.includes(f.id) ? '<span class="tag new">NEW REPLY</span> ' : ''}<b>Reply from admin:</b><p class="fb-msg">${esc(f.admin_reply)}</p></div>` : ''}</div>`).join('') || '<p class="mute">You haven\'t sent anything yet.</p>'}`}
+  <p class="mute">Urgent? WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p>`;
+  m.innerHTML = html;
+  if (unseen.length) q(sb.from('feedback').update({ reply_seen_at: new Date().toISOString() }).in('id', unseen)).then(updateFeedbackBadge).catch(() => {});
+  document.getElementById('fbf').onsubmit = async (e) => {
+    e.preventDefault();
+    const d = fd(e.target);
+    try {
+      await q(sb.from('feedback').insert({ ...d, post_id: reported ? reported.id : null, page: reportId ? 'bulletin' : null }));
+      e.target.reset();
+      flash(document.getElementById('fbm'), 'Thank you! Your message was sent to the admins.', 1);
+      if (reportId) history.replaceState(null, '', '#/feedback');
+      setTimeout(render, 1200);
+    } catch (er) { flash(document.getElementById('fbm'), er.message); }
+  };
+  m.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => { fbFilter = b.dataset.f; render(); }));
+  m.querySelectorAll('.fb-reply').forEach((f) => (f.onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f));
+    try { await q(sb.rpc('admin_update_feedback', { fid: +f.dataset.id, new_status: d.status, reply: d.reply })); flash(f.querySelector('.fbm'), 'Saved', 1); updateFeedbackBadge(); }
+    catch (er) { flash(f.querySelector('.fbm'), er.message); }
+  }));
+  m.querySelectorAll('[data-delfb]').forEach((b) => (b.onclick = async () => { if (confirm('Delete this feedback item?')) { await q(sb.from('feedback').delete().eq('id', b.dataset.delfb)); render(); } }));
+  m.querySelectorAll('[data-delpost]').forEach((b) => (b.onclick = async () => {
+    if (!confirm('Delete the reported bulletin post for everyone?')) return;
+    await q(sb.from('posts').delete().eq('id', b.dataset.delpost));
+    b.closest('.fb-post').innerHTML = '<span class="ok">Post deleted.</span>';
+  }));
 }
 
 /* ---------------- onboarding: setup guide, checklists, help ---------------- */
@@ -288,6 +385,7 @@ async function pgWelcome(m) {
       <tr><td><b>Academic Calendar</b></td><td>Semester dates, lecture weeks, exams and public holidays.</td></tr>
       <tr><td><b>Grades / Notes</b></td><td>Your marks with weighted totals, and private notes.</td></tr>
       <tr><td><b>Profile</b></td><td>Your details and password.</td></tr>
+      <tr><td><b>Feedback</b></td><td>Send suggestions, report a problem or a bulletin post. Admin replies show up there.</td></tr>
       <tr><td><b>Help</b></td><td>How-tos and answers to common questions. You can run this guide again from there.</td></tr>
       ${me.role === 'admin' ? '<tr><td><b>Admin</b></td><td>Load the timetable and academic calendar, manage users. The Dashboard shows an admin setup checklist.</td></tr>' : ''}</table>
       <p>Need help? WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p></div>`;
@@ -344,6 +442,7 @@ async function pgHelp(m) {
     ['I added/dropped a subject', 'Upload your new slip in <b>My Courses</b> (it replaces the list), or add/remove subjects there by hand.'],
     ['How does the bulletin work?', 'Each subject has its own board. You can post to subjects you are registered for; add a due date for assignments and tests so they show on everyone\'s Dashboard and Calendar. Admins can post general notices.'],
     ['Who can see my information?', 'Your assignments, grades, notes, own classes and contact details are private (admins can see your profile and timetable to help you). Bulletin posts show your name and student ID to other students.'],
+    ['How do I report a problem or a post?', 'Use the <b>Feedback</b> page, or the <b>Report</b> link under any bulletin post. Only admins can read it, and their reply appears on your Feedback page (the menu shows a badge when there is a new reply).'],
     ['I forgot my password', 'Ask an admin to reset it (WhatsApp below), then change it in <b>Profile</b>.'],
     ['What do "Lecture week" and the holidays come from?', 'The university\'s academic calendar, uploaded by the admin. See <b>Academic Calendar</b>.'],
   ];
@@ -355,6 +454,7 @@ async function pgHelp(m) {
     <li><b>Each academic year:</b> Admin, Academic calendar, upload the new Kalendar Akademik PDF.</li>
     <li><b>Each semester:</b> Admin, paste the new timetable link, Save &amp; sync now (or upload the saved page).</li>
     <li><b>Users:</b> Admin, View, to see a student's subjects and timetable, edit details, reset a password or delete an account.</li>
+    <li><b>Feedback:</b> the red number next to Feedback shows new items. Reply, set the status, and delete reported posts from there.</li>
     <li>The full setup guide is SETUP.md in the GitHub repository.</li></ul></div>` : ''}
   <div class="card"><h3>Still stuck?</h3><p>WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p></div>`;
   document.getElementById('rg').onclick = () => { wStep = 0; location.hash = '#/welcome'; };
@@ -575,7 +675,7 @@ async function pgBulletin(m) {
   <p><label style="display:inline">Show </label><select id="bf" style="width:auto"><option value="mine" ${filter === 'mine' ? 'selected' : ''}>My subjects</option><option value="all" ${filter === 'all' ? 'selected' : ''}>All subjects</option></select></p>
   ${Object.keys(groups).sort().map((code) => `<div class="card"><h3>${code ? esc(code) + ' <span class="mute">' + esc(groups[code][0].course_name || '') + '</span>' : 'General'}</h3>
   ${groups[code].map((p) => `<div class="post"><h4><span class="tag ${esc(p.kind)}">${esc(p.kind)}</span> ${esc(p.title)} ${p.due_date ? `<span class="tag">due ${esc(p.due_date)}</span>` : ''}</h4>${p.body ? `<p>${esc(p.body)}</p>` : ''}
-  <span class="mute">${esc(p.author_name)} (${esc(p.author_sid)}) · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || me.role === 'admin' ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''}</div>`).join('')}</div>`).join('') || '<div class="card mute">No posts yet.</div>'}`;
+  <span class="mute">${esc(p.author_name)} (${esc(p.author_sid)}) · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || me.role === 'admin' ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('')}</div>`).join('') || '<div class="card mute">No posts yet.</div>'}`;
   document.getElementById('bf').onchange = (e) => { try { sessionStorage.setItem('bfilter', e.target.value); } catch {} render(); };
   m.querySelectorAll('[data-del]').forEach((x) => (x.onclick = async () => { if (confirm('Delete this post?')) { await q(sb.from('posts').delete().eq('id', x.dataset.del)); render(); } }));
   document.getElementById('np').onsubmit = async (e) => {

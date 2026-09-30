@@ -153,6 +153,43 @@ set role anon;
 select pg_temp.expect((select calendar_feed(t) from tok) is null, 'old link stops working');
 reset role;
 
+-- feedback and reports
+reset role;
+insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-00000000000d', '555@x', '{"student_id":"555","name":"Dan"}');
+select pg_temp.as_user('d');
+insert into feedback(kind, subject, message) values ('bug', 'Calendar broken', 'It shows the wrong week');
+select pg_temp.expect((select user_id = auth.uid() and status = 'new' from feedback), 'feedback saved as new, owned by sender');
+select pg_temp.expect_fail($$insert into feedback(kind, subject, message, status) values ('bug', 'x', 'y', 'resolved')$$, 'sender setting status');
+select pg_temp.expect_fail($$insert into feedback(subject, message, admin_reply) values ('x', 'y', 'fake reply')$$, 'sender writing a reply');
+select pg_temp.expect_fail($$update feedback set status = 'resolved'$$, 'sender resolving own feedback');
+select pg_temp.expect_fail($$select admin_update_feedback(1, 'resolved', 'x')$$, 'student using admin feedback functions');
+insert into feedback(kind, subject, message, post_id, page) values ('report', 'Spam post', 'Please remove', (select min(id) from posts), 'bulletin');
+select pg_temp.expect((select post_title is not null from feedback where kind = 'report'), 'reported post title taken from the post');
+insert into feedback(kind, subject, message, post_id) values ('report', 'Ghost', 'no such post', 999999);
+select pg_temp.expect((select post_id is null and post_title is null from feedback where subject = 'Ghost'), 'report of a missing post keeps no reference');
+select pg_temp.expect_fail($$insert into feedback(subject, message) select 's' || g, 'm' from generate_series(1, 8) g$$, 'more than 10 feedback items in an hour');
+reset role;
+select pg_temp.as_user('b');
+select pg_temp.expect((select count(*) from feedback where user_id = '00000000-0000-0000-0000-00000000000d') = 3, 'admin sees everyone''s feedback');
+select admin_mark_feedback_read(array(select id from feedback where subject = 'Calendar broken'));
+select admin_update_feedback((select id from feedback where subject = 'Calendar broken'), 'resolved', 'Fixed, thanks!');
+reset role;
+select pg_temp.as_user('d');
+select pg_temp.expect((select status || '|' || admin_reply || '|' || (reply_seen_at is null)::text from feedback where subject = 'Calendar broken') = 'resolved|Fixed, thanks!|true', 'sender sees the reply as unread');
+update feedback set reply_seen_at = now() where subject = 'Calendar broken';
+select pg_temp.expect((select reply_seen_at is not null from feedback where subject = 'Calendar broken'), 'sender marks reply as seen');
+delete from feedback;
+select pg_temp.expect((select count(*) from feedback) = 3, 'sender cannot delete feedback');
+reset role;
+insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-00000000000f', 'fay1@x', '{"name":"Fay"}');
+select pg_temp.as_user('f');
+select pg_temp.expect((select count(*) from feedback) = 0, 'students cannot see others'' feedback');
+reset role;
+select pg_temp.as_user('b');
+delete from feedback where subject = 'Ghost';
+select pg_temp.expect((select count(*) from feedback) = 2, 'admin deletes feedback');
+reset role;
+
 -- academic calendar drives the export
 select pg_temp.as_user('b');
 reset role;
@@ -182,7 +219,6 @@ insert into my_classes(user_id, course_code, day, start_time, end_time) values (
 select pg_temp.as_user('b');
 select pg_temp.expect((select position('Evil' || E'\r' in t) = 0 and position('Evil\nBEGIN:VEVENTX' in t) > 0 from (select my_calendar_ics() t) z), 'ics: control characters in names cannot inject lines');
 reset role;
-insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-00000000000d', 'dan@x', '{"student_id":"555","name":"Dan"}');
 select pg_temp.as_user('d');
 select pg_temp.expect_fail($$select admin_save_academic_calendar('[]', '[]')$$, 'student replacing academic calendar');
 select pg_temp.expect((select count(*) from academic_events) = 3 and (select count(*) from academic_periods) = 5, 'students can read the academic calendar');

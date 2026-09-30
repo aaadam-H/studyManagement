@@ -72,6 +72,22 @@ create table if not exists public.academic_events (
   start_date date not null, end_date date not null check (end_date >= start_date),
   no_class boolean not null default true          -- public holiday: classes are skipped in calendar exports
 );
+-- feedback, bug reports and reports of bulletin posts (students send; admins read, reply and resolve)
+create table if not exists public.feedback (
+  id bigint generated always as identity primary key,
+  user_id uuid not null default auth.uid() references public.profiles(id) on delete cascade,
+  kind text not null default 'feedback' check (kind in ('feedback','bug','report','other')),
+  subject text not null check (length(subject) between 1 and 200),
+  message text not null check (length(message) between 1 and 4000),
+  post_id bigint,                                  -- reported bulletin post (no FK: the post may be deleted later)
+  post_title text check (length(post_title) <= 200),
+  page text check (length(page) <= 100),
+  status text not null default 'new' check (status in ('new','open','resolved')),
+  admin_reply text check (length(admin_reply) <= 4000),
+  replied_at timestamptz, reply_seen_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists feedback_status_idx on public.feedback(status);
 create table if not exists public.posts (
   id bigint generated always as identity primary key,
   course_code text references public.courses(code),          -- null = general notice (admins only)
@@ -144,6 +160,24 @@ end $$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
 
+-- new feedback: fixed owner/status, reported post title taken from the post itself, at most 10 per hour per person
+create or replace function public.stamp_feedback() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if (select count(*) from feedback where user_id = auth.uid() and created_at > now() - interval '1 hour') >= 10 then
+    raise exception 'You have sent a lot of feedback in the last hour. Please try again later.';
+  end if;
+  new.user_id := auth.uid();
+  new.status := 'new';
+  new.admin_reply := null; new.replied_at := null; new.reply_seen_at := null;
+  new.created_at := now();
+  new.post_title := case when new.post_id is not null then (select left(title, 200) from posts where id = new.post_id) end;
+  if new.post_id is not null and new.post_title is null then new.post_id := null; end if;
+  return new;
+end $$;
+drop trigger if exists stamp_feedback on public.feedback;
+create trigger stamp_feedback before insert on public.feedback for each row execute function public.stamp_feedback();
+
 -- stamp author on bulletin posts
 create or replace function public.stamp_post_author() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -169,6 +203,7 @@ alter table public.notes enable row level security;
 alter table public.my_classes enable row level security;
 alter table public.academic_periods enable row level security;
 alter table public.academic_events enable row level security;
+alter table public.feedback enable row level security;
 
 -- profiles: see yourself (admins see everyone); edit only your own details, never your role or student ID
 drop policy if exists profiles_read on public.profiles;
@@ -193,6 +228,20 @@ create policy periods_read on public.academic_periods for select to authenticate
 drop policy if exists events_read on public.academic_events;
 create policy events_read on public.academic_events for select to authenticated using (true);
 revoke insert, update, delete on public.academic_periods, public.academic_events from anon, authenticated;
+-- feedback: students see their own, admins see all; students may only fill in the message fields
+-- and mark a reply as seen; status and replies change only through the admin functions below
+drop policy if exists feedback_read on public.feedback;
+create policy feedback_read on public.feedback for select to authenticated using (user_id = auth.uid() or public.is_admin());
+drop policy if exists feedback_insert on public.feedback;
+create policy feedback_insert on public.feedback for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists feedback_seen on public.feedback;
+create policy feedback_seen on public.feedback for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists feedback_admin_delete on public.feedback;
+create policy feedback_admin_delete on public.feedback for delete to authenticated using (public.is_admin());
+revoke insert, update, delete on public.feedback from anon, authenticated;
+grant insert (kind, subject, message, post_id, page) on public.feedback to authenticated;
+grant update (reply_seen_at) on public.feedback to authenticated;
+grant delete on public.feedback to authenticated;
 
 -- enrollments: your own; adding goes through save_courses(); you may change only the chosen section
 drop policy if exists enroll_read on public.enrollments;
@@ -512,12 +561,35 @@ end $$;
 
 -- Supabase grants EXECUTE on new functions to anon and authenticated by default; take it all back,
 -- then allow only the functions the app calls (internal helpers like build_ics stay private)
+-- Admin: reply to / change the status of a feedback item (a new reply shows as unread to the student)
+create or replace function public.admin_update_feedback(fid bigint, new_status text, reply text) returns void
+language plpgsql security definer set search_path = public as $$
+declare r text := left(nullif(trim(reply), ''), 4000);
+begin
+  if not is_admin() then raise exception 'admin only'; end if;
+  if new_status not in ('new','open','resolved') then raise exception 'bad status'; end if;
+  update feedback set status = new_status,
+    replied_at = case when r is distinct from admin_reply then case when r is null then null else now() end else replied_at end,
+    reply_seen_at = case when r is distinct from admin_reply then null else reply_seen_at end,
+    admin_reply = r
+  where id = fid;
+end $$;
+
+-- Admin: mark new items as read (they stay open until resolved)
+create or replace function public.admin_mark_feedback_read(ids bigint[]) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'admin only'; end if;
+  update feedback set status = 'open' where id = any(ids) and status = 'new';
+end $$;
+
 revoke execute on all functions in schema public from anon, authenticated, public;
 grant execute on function public.is_admin(), public.is_enrolled(text), public.save_courses(jsonb, boolean),
   public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_set_role(uuid, text),
   public.admin_reset_password(uuid, text), public.admin_delete_user(uuid),
   public.admin_update_profile(uuid, jsonb), public.my_timetable(uuid), public.my_calendar_ics(),
-  public.reset_calendar_token(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb) to authenticated;
+  public.reset_calendar_token(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb),
+  public.admin_update_feedback(bigint, text, text), public.admin_mark_feedback_read(bigint[]) to authenticated;
 grant execute on function public.calendar_feed(uuid) to anon, authenticated;
 
 -- ---------- make yourself admin (run once after you register, with your own student ID) ----------

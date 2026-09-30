@@ -10,6 +10,7 @@ Multi-user study planner for UniMAP students. Static site on **GitHub Pages**, d
 - **Personal**: dashboard, assignments, calendar, grades, notes (private to each user).
 - **Admin**: timetable source, user list, promote/demote, reset passwords, delete users.
 - **Getting started**: new students get a short setup guide (slip, group, calendar app, tour), a Dashboard checklist, and a Help page.
+- **Feedback & reports**: students send feedback, bug reports or report bulletin posts; admins get a badge with the number of new items, reply, resolve and remove posts.
 
 **Setup:** follow [SETUP.md](SETUP.md).
 
