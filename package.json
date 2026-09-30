@@ -1,0 +1,14 @@
+{
+  "name": "studyhub",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only: tests for the StudyHub parsers. The app itself is static files in web/ plus Supabase.",
+  "scripts": {
+    "test": "node tests/parsers.test.mjs",
+    "serve": "npx --yes serve web"
+  },
+  "devDependencies": {
+    "linkedom": "^0.18.9",
+    "pdfjs-dist": "4.10.38"
+  }
+}
