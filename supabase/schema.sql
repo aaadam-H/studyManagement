@@ -102,11 +102,23 @@ create table if not exists public.posts (
   course_code text references public.courses(code),          -- null = general notice (admins only)
   user_id uuid not null default auth.uid() references public.profiles(id) on delete cascade,
   author_name text, author_sid text,                          -- filled by trigger
-  kind text not null default 'info' check (kind in ('info','assignment','exam','urgent')),
+  kind text not null default 'info' check (kind in ('info','assignment','exam','urgent','update')),
   title text not null check (length(title) between 1 and 200),
   body text check (length(body) <= 4000),
   due_date date,
   created_at timestamptz not null default now()
+);
+-- 'update' = announcement from an admin to everyone: shown on the Dashboard until dismissed, author shown only as ADMIN
+do $$ declare c text; begin  -- drop the old type rule, whatever it is called
+  for c in select conname from pg_constraint where conrelid = 'public.posts'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%kind%' loop
+    execute format('alter table public.posts drop constraint %I', c);
+  end loop;
+end $$;
+alter table public.posts add constraint posts_kind_check check (kind in ('info','assignment','exam','urgent','update'));
+create table if not exists public.update_dismissals (
+  user_id uuid not null default auth.uid() references public.profiles(id) on delete cascade,
+  post_id bigint not null references public.posts(id) on delete cascade,
+  primary key (user_id, post_id)
 );
 create table if not exists public.assignments (
   id bigint generated always as identity primary key,
@@ -193,6 +205,10 @@ language plpgsql security definer set search_path = public as $$
 begin
   new.user_id := auth.uid();
   select name, student_id into new.author_name, new.author_sid from profiles where id = auth.uid();
+  if new.kind = 'update' then
+    -- announcements go to everyone and show only "ADMIN"; admins can still see who posted (user_id -> profiles)
+    new.course_code := null; new.author_name := 'ADMIN'; new.author_sid := null;
+  end if;
   new.created_at := now();
   return new;
 end $$;
@@ -267,10 +283,17 @@ drop policy if exists posts_read on public.posts;
 create policy posts_read on public.posts for select to authenticated using (true);
 drop policy if exists posts_insert on public.posts;
 create policy posts_insert on public.posts for insert to authenticated
-  with check (public.is_admin() or (course_code is not null and public.is_enrolled(course_code)));
+  with check (public.is_admin() or (kind <> 'update' and course_code is not null and public.is_enrolled(course_code)));
 drop policy if exists posts_delete on public.posts;
 create policy posts_delete on public.posts for delete to authenticated using (user_id = auth.uid() or public.is_admin());
 revoke update on public.posts from anon, authenticated;
+-- dismissed Dashboard updates: each student sees and changes only their own
+alter table public.update_dismissals enable row level security;
+drop policy if exists dismissals_own on public.update_dismissals;
+create policy dismissals_own on public.update_dismissals for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+revoke all on public.update_dismissals from anon, authenticated;
+grant select, delete on public.update_dismissals to authenticated;
+grant insert (post_id) on public.update_dismissals to authenticated;
 
 -- personal data: owner only
 drop policy if exists own_assignments on public.assignments;

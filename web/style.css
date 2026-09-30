@@ -107,3 +107,9 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 .gh{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.gh h3{margin:0 0 6px}
 .card.muted{opacity:.7}.card.muted details{margin-top:4px}
 .muted-list .tag{margin-right:4px}.muted-list a{text-decoration:none;margin-left:2px}
+/* admin updates on the Dashboard */
+.tag.update{color:var(--brand-ink);background:var(--brand);border-color:var(--brand);font-weight:700}
+.card.upd{border:1px solid var(--brand);border-left:4px solid var(--brand);animation:upd-flash 1.2s ease-in-out 3}
+.upd-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.upd-head b{flex:1}
+@keyframes upd-flash{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--brand) 35%,transparent)}}
+@media (prefers-reduced-motion:reduce){.card.upd{animation:none}}

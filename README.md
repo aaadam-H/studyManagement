@@ -10,6 +10,7 @@ A multi-user study planner for UniMAP students. It runs as a static site on **Gi
 - **Calendar export**: download an `.ics` file or subscribe with a live link in Google Calendar or Apple Calendar. Breaks and public holidays are skipped.
 - **Academic calendar**: admins upload the university's Kalendar Akademik PDF. Students see the current lecture week, breaks and holidays.
 - **Bulletin**: a shared board grouped by subject for assignments, exams and notices. Students post to subjects they're registered for; admins can post general notices. The menu shows a badge for new posts, and students can mute subjects they don't want counted.
+- **Admin updates**: admins post announcements that flash on everyone's Dashboard until dismissed and are listed under Updates on the Bulletin. Students see the author only as ADMIN.
 - **Personal tools**: dashboard, assignments, calendar, grades and notes, each private to its owner.
 - **Admin panel**: timetable source and sync, user list, promote/demote, password resets, user deletion, feedback inbox.
 - **Search & filters**: long dropdowns (like subject lists) are type-to-search, and the bulletin, assignments, grades, notes, feedback and admin user lists have a search box and filters.

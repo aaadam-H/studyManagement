@@ -123,7 +123,11 @@ async function getBulletin() {
     myCourses(),
   ]);
   const names = Object.fromEntries(all.map((c) => [c.code, c.name]));
-  return { posts: posts.map((p) => ({ ...p, course_name: names[p.course_code] })), allCourses: all, mine: mine.map((c) => c.code) };
+  // updates show "ADMIN" to students; admins also see the real poster
+  const who = {};
+  const updIds = [...new Set(posts.filter((p) => p.kind === 'update').map((p) => p.user_id))];
+  if (me.role === 'admin' && updIds.length) for (const u of await q(sb.from('profiles').select('id,name,student_id').in('id', updIds))) who[u.id] = `${u.name} (${u.student_id})`;
+  return { posts: posts.map((p) => ({ ...p, course_name: names[p.course_code], real_author: who[p.user_id] })), allCourses: all, mine: mine.map((c) => c.code) };
 }
 
 /* ---------------- profile fields (register, profile, admin edit) ---------------- */
@@ -296,7 +300,11 @@ async function pgDashboard(m) {
   const overdue = pending.filter((a) => a.due_date && a.due_date < t);
   const upcoming = bul.posts.filter((p) => (!p.course_code || bul.mine.includes(p.course_code)) && p.due_date && p.due_date >= t).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 5);
   const checklist = await gettingStartedHtml(tt, ac);
+  const dismissed = new Set(((await sb.from('update_dismissals').select('post_id')).data || []).map((r) => r.post_id));
+  const updates = bul.posts.filter((p) => p.kind === 'update' && !dismissed.has(p.id));
   m.innerHTML = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
+  ${updates.map((p) => `<div class="card upd" role="status"><div class="upd-head"><span class="tag update">UPDATE</span> <b>${esc(p.title)}</b><button class="sm ghost" data-dismiss="${p.id}" title="Hide this update">Dismiss</button></div>
+    ${p.body ? `<p class="fb-msg">${esc(p.body)}</p>` : ''}<span class="mute">ADMIN · ${esc(new Date(p.created_at).toLocaleString())}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''}</span></div>`).join('')}
   ${today.hol.length ? `<div class="card hol">${today.hol.map((e) => esc(e.title)).join(', ')}${today.classes ? '' : ' · no classes today'}</div>` : ''}
   ${checklist}
   <div class="grid"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
@@ -305,6 +313,12 @@ async function pgDashboard(m) {
   <div class="card"><h3>Upcoming deadlines from the bulletin</h3>${upcoming.length ? upcoming.map((p) => `<div class="post"><b>${esc(p.due_date)}</b> <span class="tag ${esc(p.kind)}">${esc(p.course_code || 'General')}</span> ${esc(p.title)}</div>`).join('') : '<p class="mute">Nothing due. <a href="#/bulletin">Open bulletin</a></p>'}</div>
   <div class="card"><h3>My pending assignments</h3>${pending.slice(0, 6).map((a) => `<div class="post"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${esc(a.due_date || '')}</span></div>`).join('') || '<p class="mute">All clear.</p>'}</div>
 `;
+  m.querySelectorAll('[data-dismiss]').forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    const { error } = await sb.from('update_dismissals').insert({ post_id: +b.dataset.dismiss });
+    if (error && error.code !== '23505') { b.disabled = false; return alert(error.message); } // 23505: already dismissed on another device
+    b.closest('.upd').remove();
+  }));
   const gsx = document.getElementById('gsx');
   if (gsx) gsx.onclick = (e) => { e.preventDefault(); store.set('sh_gs_hide_' + me.id, '1'); render(); };
 }
@@ -774,22 +788,23 @@ async function pgBulletin(m) {
   try { filter = sessionStorage.getItem('bfilter') || 'mine'; } catch {}
   const list = b.posts.filter((p) => filter === 'all' || !p.course_code || b.mine.includes(p.course_code));
   const groups = {};
-  for (const p of list) (groups[p.course_code || ''] ||= []).push(p);
+  const UPD = '~updates'; // admin updates get their own section at the top
+  for (const p of list) (groups[p.kind === 'update' ? UPD : p.course_code || ''] ||= []).push(p);
   const postable = me.role === 'admin' ? b.allCourses : b.allCourses.filter((c) => b.mine.includes(c.code));
   m.innerHTML = `<h2>Bulletin</h2><p class="sub">Shared board for assignments and important notices, grouped by subject.</p>
   <div class="card"><form id="np"><div class="row"><div><label>Subject</label><select name="course_code" ${me.role === 'admin' ? '' : 'required'}>${me.role === 'admin' ? '<option value="">General (all students)</option>' : '<option value="" disabled selected>Choose subject</option>'}${postable.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('')}</select></div>
-  <div><label>Type</label><select name="kind"><option value="info">Info</option><option value="assignment">Assignment</option><option value="exam">Exam / test</option><option value="urgent">Urgent</option></select></div>
+  <div><label>Type</label><select name="kind"><option value="info">Info</option><option value="assignment">Assignment</option><option value="exam">Exam / test</option><option value="urgent">Urgent</option>${me.role === 'admin' ? '<option value="update">Update (Dashboard, everyone)</option>' : ''}</select></div>
   <div><label>Due date (optional)</label><input type="date" name="due_date"></div></div>
   <label>Title</label><input name="title" required maxlength="200"><label>Details</label><textarea name="body" rows="3" maxlength="4000"></textarea><div id="pmsg"></div><p><button>Post</button></p></form>
   ${postable.length || me.role === 'admin' ? '' : '<p class="mute">Register your courses to post to their boards.</p>'}</div>
-  ${filterBar('Search posts, subjects, authors...', `<select id="bf" data-plain><option value="mine" ${filter === 'mine' ? 'selected' : ''}>My subjects</option><option value="all" ${filter === 'all' ? 'selected' : ''}>All subjects</option></select>${qSelect('kind', [['', 'All types'], ['info', 'Info'], ['assignment', 'Assignments'], ['exam', 'Exams / tests'], ['urgent', 'Urgent']])}`)}
+  ${filterBar('Search posts, subjects, authors...', `<select id="bf" data-plain><option value="mine" ${filter === 'mine' ? 'selected' : ''}>My subjects</option><option value="all" ${filter === 'all' ? 'selected' : ''}>All subjects</option></select>${qSelect('kind', [['', 'All types'], ['info', 'Info'], ['assignment', 'Assignments'], ['exam', 'Exams / tests'], ['urgent', 'Urgent'], ['update', 'Updates']])}`)}
   ${muted.length ? `<p class="mute muted-list">Muted (not counted in the menu badge): ${muted.map((c) => `<span class="tag">${esc(c)} <a href="#" data-unmute="${esc(c)}" title="Unmute">×</a></span>`).join(' ')}</p>` : ''}
-  ${Object.keys(groups).sort((a, b) => muted.includes(a) - muted.includes(b) || a.localeCompare(b)).map((code) => {
+  ${Object.keys(groups).sort((a, b) => (b === UPD) - (a === UPD) || muted.includes(a) - muted.includes(b) || a.localeCompare(b)).map((code) => {
     const off = muted.includes(code), fresh = groups[code].filter(isNew).length;
     const posts = groups[code].map((p) => `<div class="post qi" data-kind="${esc(p.kind)}"><h4>${isNew(p) ? '<span class="tag new">NEW</span> ' : ''}<span class="tag ${esc(p.kind)}">${esc(p.kind)}</span> ${esc(p.title)} ${p.due_date ? `<span class="tag">due ${esc(p.due_date)}</span>` : ''}</h4>${p.body ? `<p>${esc(p.body)}</p>` : ''}
-  <span class="mute">${esc(p.author_name)} (${esc(p.author_sid)}) · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || me.role === 'admin' ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('');
-    return `<div class="card qg${off ? ' muted' : ''}"><div class="gh"><h3>${code ? esc(code) + ' <span class="mute">' + esc(groups[code][0].course_name || '') + '</span>' : 'General'}${fresh && !off ? ` <span class="tag new">${fresh} new</span>` : ''}</h3>
-      ${code ? `<button class="sm ghost" data-${off ? 'unmute' : 'mute'}="${esc(code)}" title="${off ? 'Count new posts again' : 'Stop counting new posts from this subject'}">${off ? 'Unmute' : 'Mute'}</button>` : ''}</div>
+  <span class="mute">${esc(p.author_name)}${p.author_sid ? ` (${esc(p.author_sid)})` : ''}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''} · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || me.role === 'admin' ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('');
+    return `<div class="card qg${off ? ' muted' : ''}"><div class="gh"><h3>${code === UPD ? 'Updates' : code ? esc(code) + ' <span class="mute">' + esc(groups[code][0].course_name || '') + '</span>' : 'General'}${fresh && !off ? ` <span class="tag new">${fresh} new</span>` : ''}</h3>
+      ${code && code !== UPD ? `<button class="sm ghost" data-${off ? 'unmute' : 'mute'}="${esc(code)}" title="${off ? 'Count new posts again' : 'Stop counting new posts from this subject'}">${off ? 'Unmute' : 'Mute'}</button>` : ''}</div>
       ${off ? `<details><summary>Muted · show ${groups[code].length} post${groups[code].length === 1 ? '' : 's'}</summary>${posts}</details>` : posts}</div>`;
   }).join('') || '<div class="card mute">No posts yet.</div>'}`;
   m.querySelectorAll('[data-mute]').forEach((x) => (x.onclick = async () => { await saveMuted([...new Set([...muted, x.dataset.mute])]); render(); }));
@@ -798,6 +813,8 @@ async function pgBulletin(m) {
   q(sb.rpc('mark_bulletin_seen')).then((t) => { me.bulletin_seen_at = t; updateBulletinBadge(); }).catch(() => {});
   document.getElementById('bf').onchange = (e) => { try { sessionStorage.setItem('bfilter', e.target.value); } catch {} render(); };
   m.querySelectorAll('[data-del]').forEach((x) => (x.onclick = async () => { if (confirm('Delete this post?')) { await q(sb.from('posts').delete().eq('id', x.dataset.del)); render(); } }));
+  const np = document.getElementById('np');
+  np.kind.onchange = () => { const upd = np.kind.value === 'update'; np.querySelector('.combo, [name=course_code]').closest('div').style.opacity = upd ? '.4' : ''; np.querySelector('[name=title]').placeholder = upd ? 'Shown on everyone\'s Dashboard as ADMIN' : ''; };
   document.getElementById('np').onsubmit = async (e) => {
     e.preventDefault();
     try { await q(sb.from('posts').insert(fd(e.target))); render(); }
