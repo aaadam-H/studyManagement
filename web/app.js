@@ -322,10 +322,12 @@ function wireCalendarCard(m) {
 let pdfjs = null;
 async function pdfToLines(file) {
   if (!pdfjs) {
-    pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs');
-    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+    // bundled in web/vendor (no third-party CDN at runtime)
+    pdfjs = await import('./vendor/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.mjs', import.meta.url).href;
   }
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  if (!file || file.size > 10 * 1024 * 1024) throw new Error('Choose a PDF under 10 MB');
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
   const lines = [];
   for (let p = 1; p <= doc.numPages; p++) {
     const rows = [];
@@ -511,7 +513,8 @@ async function loadTimetableHtml(html, progress = () => {}) {
   let n = 0;
   for (let i = 0; i < result.classes.length; i += B) {
     progress(`Saving classes ${i + 1}-${Math.min(i + B, result.classes.length)} of ${result.classes.length}...`);
-    n += await q(sb.rpc('admin_replace_classes', { items: result.classes.slice(i, i + B), replace: i === 0 }));
+    try { n += await q(sb.rpc('admin_replace_classes', { items: result.classes.slice(i, i + B), replace: i === 0 })); }
+    catch (er) { throw new Error(`Saving stopped after ${n} of ${result.classes.length} classes (${er.message}). The timetable is incomplete; please run it again.`); }
   }
   const groups = new Set(result.classes.map((c) => c.section)).size;
   return `Loaded ${n} classes for ${groups} groups. Students now pick their group on the Timetable page.`;

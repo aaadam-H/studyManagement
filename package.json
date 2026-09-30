@@ -5,9 +5,11 @@
   "description": "Dev-only: tests for the StudyHub parsers. The app itself is static files in web/ plus Supabase.",
   "scripts": {
     "test": "node tests/parsers.test.mjs",
-    "serve": "npx --yes serve web"
+    "serve": "npx --yes serve web",
+    "vendor": "cp node_modules/@supabase/supabase-js/dist/umd/supabase.js web/vendor/ && cp node_modules/pdfjs-dist/build/pdf.min.mjs node_modules/pdfjs-dist/build/pdf.worker.min.mjs web/vendor/"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "2.117.2",
     "linkedom": "^0.18.9",
     "pdfjs-dist": "4.10.38"
   }

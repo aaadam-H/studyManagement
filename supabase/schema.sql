@@ -92,6 +92,16 @@ create table if not exists public.notes (
   course_code text, title text not null, body text, updated_at timestamptz not null default now()
 );
 
+do $$ begin
+  alter table public.notes add constraint notes_len check (length(title) <= 200 and length(coalesce(body, '')) <= 20000);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.assignments add constraint assignments_len check (length(title) <= 200 and length(coalesce(description, '')) <= 4000 and length(coalesce(course_code, '')) <= 12);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.grades add constraint grades_len check (length(item) <= 200 and length(coalesce(course_code, '')) <= 12);
+exception when duplicate_object then null; end $$;
+
 insert into public.settings(key, value) values
   ('timetable_url', 'https://timetables2.unimap.edu.my/IjazahSarjanaMuda/SarjanaMudaSem220252026/DEGREE_SEM2_20252026_OFFICIAL_subgroups_days_vertical.html#table_1103')
 on conflict (key) do nothing;
@@ -108,14 +118,20 @@ $$ select exists (select 1 from enrollments where user_id = auth.uid() and cours
 -- create the profile when someone signs up (details come from signUp options.data)
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
+declare
+  m jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
+  -- the login is "<student id>@<domain>", so the student ID always comes from the email, never from free-form sign-up data
+  -- (keeps the capitalisation the student typed when it matches)
+  sid text := case when lower(trim(m->>'student_id')) = lower(split_part(new.email, '@', 1)) then trim(m->>'student_id')
+                   else split_part(new.email, '@', 1) end;
 begin
+  if sid !~ '^[A-Za-z0-9._-]{3,30}$' then raise exception 'invalid student ID'; end if;
   insert into profiles(id, student_id, name, email, phone, program, faculty, year, semester)
-  values (new.id,
-          coalesce(nullif(trim(new.raw_user_meta_data->>'student_id'), ''), split_part(new.email, '@', 1)),
-          coalesce(nullif(trim(new.raw_user_meta_data->>'name'), ''), 'Student'),
-          nullif(new.raw_user_meta_data->>'contact_email', ''), nullif(new.raw_user_meta_data->>'phone', ''),
-          nullif(new.raw_user_meta_data->>'program', ''), nullif(new.raw_user_meta_data->>'faculty', ''),
-          nullif(new.raw_user_meta_data->>'year', '')::int, nullif(new.raw_user_meta_data->>'semester', ''));
+  values (new.id, sid,
+          left(coalesce(nullif(trim(m->>'name'), ''), 'Student'), 120),
+          left(nullif(trim(m->>'contact_email'), ''), 120), left(nullif(trim(m->>'phone'), ''), 30),
+          left(nullif(trim(m->>'program'), ''), 120), left(nullif(trim(m->>'faculty'), ''), 120),
+          case when m->>'year' ~ '^\d{1,2}$' then (m->>'year')::int end, left(nullif(trim(m->>'semester'), ''), 40));
   return new;
 end $$;
 drop trigger if exists on_auth_user_created on auth.users;
@@ -212,6 +228,7 @@ language plpgsql security definer set search_path = public as $$
 declare c jsonb;
 begin
   if auth.uid() is null then raise exception 'not logged in'; end if;
+  if jsonb_array_length(items) > 30 then raise exception 'too many courses'; end if;
   if replace then delete from enrollments where user_id = auth.uid(); end if;
   for c in select * from jsonb_array_elements(items) loop
     if upper(c->>'code') !~ '^[A-Z]{3}[0-9]{5}$' then continue; end if;
@@ -235,7 +252,7 @@ begin
   if not is_admin() then raise exception 'admin only'; end if;
   if replace then delete from classes where true; end if;
   insert into classes(course_code, section, day, start_time, end_time, kind, venue, lecturer, details)
-  select x->>'course_code', x->>'section', (x->>'day')::int, x->>'start', x->>'end', left(x->>'kind', 40), left(x->>'venue', 200), left(x->>'lecturer', 300), left(x->>'details', 300)
+  select left(x->>'course_code', 12), left(x->>'section', 80), (x->>'day')::int, left(x->>'start', 5), left(x->>'end', 5), left(x->>'kind', 40), left(x->>'venue', 200), left(x->>'lecturer', 300), left(x->>'details', 300)
   from jsonb_array_elements(items) x;
   get diagnostics n = row_count;
   insert into courses(code, name, name_from_timetable)
@@ -277,6 +294,8 @@ begin
   if not is_admin() then raise exception 'admin only'; end if;
   if length(new_password) < 8 then raise exception 'password must be at least 8 characters'; end if;
   update auth.users set encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')) where id = target;
+  -- sign them out everywhere (refresh tokens go with their sessions)
+  if to_regclass('auth.sessions') is not null then execute 'delete from auth.sessions where user_id = $1' using target; end if;
 end $$;
 
 create or replace function public.admin_delete_user(target uuid) returns void
@@ -343,7 +362,9 @@ end $$;
 
 -- iCalendar text escaping and 75-char line folding
 create or replace function public.ics_text(t text) returns text language sql immutable as $$
-  select replace(replace(replace(replace(coalesce(t, ''), '\', '\\'), ';', '\;'), ',', '\,'), E'\n', '\n')
+  select replace(replace(replace(replace(
+    regexp_replace(replace(coalesce(t, ''), E'\r\n', E'\n'), E'[\\x01-\\x09\\x0B-\\x1F\\x7F]', '', 'g'),
+    '\', '\\'), ';', '\;'), ',', '\,'), E'\n', '\n')
 $$;
 create or replace function public.ics_fold(line text) returns text language plpgsql immutable as $$
 declare out text := left(line, 74); rest text := substr(line, 75);

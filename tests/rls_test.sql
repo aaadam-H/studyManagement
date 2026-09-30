@@ -1,10 +1,12 @@
 -- Security tests for supabase/schema.sql. Needs a Postgres with a mock `auth` schema (see tests/README).
 \set ON_ERROR_STOP 1
 insert into auth.users(id, email, raw_user_meta_data) values
- ('00000000-0000-0000-0000-00000000000a', 'admin@x', '{"student_id":"ADMIN1","name":"Admin"}'),
- ('00000000-0000-0000-0000-00000000000b', 'adam@x',  '{"student_id":"231021306","name":"Adam","phone":"012"}'),
- ('00000000-0000-0000-0000-00000000000c', 'eve@x',   '{"student_id":"999","name":"Eve"}');
+ ('00000000-0000-0000-0000-00000000000a', 'admin1@x', '{"student_id":"ADMIN1","name":"Admin"}'),
+ ('00000000-0000-0000-0000-00000000000b', '231021306@x',  '{"student_id":"231021306","name":"Adam","phone":"012"}'),
+ ('00000000-0000-0000-0000-00000000000c', '999@x',   '{"student_id":"999","name":"Eve"}');
 update public.profiles set role = 'admin' where student_id = 'ADMIN1';
+insert into auth.sessions(user_id) values ('00000000-0000-0000-0000-00000000000c'), ('00000000-0000-0000-0000-00000000000c');
+
 
 create or replace function pg_temp.as_user(u text) returns void language plpgsql as $$
 begin perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000' || u, false); execute 'set role authenticated'; end $$;
@@ -16,6 +18,12 @@ end $$;
 create or replace function pg_temp.expect(cond boolean, what text) returns void language plpgsql as $$
 begin if not cond then raise exception 'FAIL - %', what; end if; raise notice 'ok - %', what; end $$;
 
+-- sign-up hardening: the student ID comes from the login email, not from free-form sign-up data
+insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e1', 'mallory1@x', '{"student_id":"231021306-x","name":"<b>M</b>","year":"abc"}');
+select pg_temp.expect((select student_id || '|' || coalesce(year::text, 'null') from profiles where id = '00000000-0000-0000-0000-0000000000e1') = 'mallory1|null', 'sign-up: student ID taken from login, junk year ignored');
+select pg_temp.expect_fail($$insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-0000000000e2', 'a b<i>@x', '{}')$$, 'sign-up with an invalid student ID');
+delete from auth.users where id = '00000000-0000-0000-0000-0000000000e1';
+
 -- Adam (student)
 select pg_temp.as_user('b');
 select pg_temp.expect((select count(*) from profiles) = 1, 'student sees only own profile');
@@ -25,6 +33,8 @@ update profiles set phone = '0199' where id = auth.uid();
 select save_courses('[{"code":"IMJ41203","name":"Artificial Intelligence","credit":"3","status":"FT","grp":"UR6523002"},{"code":"bad"}]', true);
 select pg_temp.expect((select count(*) from enrollments) = 1, 'save_courses enrolls, skips bad codes');
 select pg_temp.expect_fail($$insert into enrollments(user_id, course_code) values (auth.uid(), 'IMJ41203')$$, 'direct enrollment insert');
+select pg_temp.expect_fail($$select save_courses((select jsonb_agg(jsonb_build_object('code', 'IMJ' || (40000 + g))) from generate_series(1, 31) g))$$, 'more than 30 courses at once');
+select pg_temp.expect_fail($$insert into notes(title, body) values ('big', repeat('x', 20001))$$, 'oversized note');
 select pg_temp.expect_fail($$insert into courses values ('ABC12345','x',1)$$, 'student inserting course');
 select pg_temp.expect_fail($$select admin_users()$$, 'student calling admin_users');
 select pg_temp.expect_fail($$select admin_replace_classes('[]')$$, 'student replacing classes');
@@ -85,6 +95,9 @@ select pg_temp.expect((select value from settings where key='timetable_url') = '
 insert into posts(title) values ('Campus notice');
 select pg_temp.expect((select count(*) from posts where course_code is null) = 1, 'admin general post');
 select admin_reset_password('00000000-0000-0000-0000-00000000000c', 'newpassword1');
+reset role;
+select pg_temp.expect((select count(*) from auth.sessions where user_id = '00000000-0000-0000-0000-00000000000c') = 0, 'password reset signs the user out');
+select pg_temp.as_user('a');
 select pg_temp.expect_fail($$select admin_set_role(auth.uid(), 'student')$$, 'admin demoting self');
 select admin_update_profile('00000000-0000-0000-0000-00000000000b', '{"name":"Adam H","phone":"0194145201","year":""}');
 select pg_temp.expect((select name || phone from profiles where student_id='231021306') = 'Adam H0194145201', 'admin edits a user profile');
@@ -160,6 +173,11 @@ insert into ics select my_calendar_ics();
 select pg_temp.expect((select t like '%DTSTART;TZID=Asia/Kuala_Lumpur:20261006T140000%' and t like '%RRULE:FREQ=WEEKLY;UNTIL=20270117T155959Z%' from ics), 'ics: classes run from first to last lecture week');
 select pg_temp.expect((select t like '%20261020T140000%' and t like '%20261201T140000%' and t not like '%20261117T140000%' from ics), 'ics: skips holiday + mid-sem break, not info events');
 select pg_temp.expect((select t like '%DTSTART;VALUE=DATE:20261225%' and t like '%SUMMARY:Mid-semester break (Semester 1 2026/2027)%' from ics), 'ics: holidays and breaks as all-day events');
+reset role;
+update courses set name = E'Evil\r\nBEGIN:VEVENT\rX' where code = 'IMJ41203';
+insert into my_classes(user_id, course_code, day, start_time, end_time) values ('00000000-0000-0000-0000-00000000000b', 'IMJ41203', 4, '09:00', '10:00');
+select pg_temp.as_user('b');
+select pg_temp.expect((select position('Evil' || E'\r' in t) = 0 and position('Evil\nBEGIN:VEVENTX' in t) > 0 from (select my_calendar_ics() t) z), 'ics: control characters in names cannot inject lines');
 reset role;
 insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-00000000000d', 'dan@x', '{"student_id":"555","name":"Dan"}');
 select pg_temp.as_user('d');
