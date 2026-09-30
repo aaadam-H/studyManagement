@@ -67,15 +67,28 @@ function tableToRows(table) {
 }
 const titleCase = (t) => t.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase()).replace(/\b(And|Of|In|For|The|To|With)\b/g, (w) => w.toLowerCase()).replace(/\b(Ii|Iii|Iv)\b/g, (w) => w.toUpperCase());
 
+// "EMK32503 - A / EMK32803 - B" -> ["EMK32503 - A", "EMK32803 - B"]; code-only pieces stay with the next name
+function subjectParts(text) {
+  const out = [];
+  let carry = '';
+  for (const p of text.split(/\s+\/\s+(?=[A-Z]{3}\d{3,5}\s*-)/)) {
+    if (/-/.test(p)) { out.push(carry ? `${carry} / ${p}` : p); carry = ''; } else carry = carry ? `${carry} / ${p}` : p;
+  }
+  if (carry) out.push(carry);
+  return out;
+}
+
 // Cells from FET-generated pages (UniMAP) have labelled parts: .subject, .activitytag, .teacher, .room
 function parseStructuredCell(td) {
   const out = [];
-  for (const subj of td.querySelectorAll('.subject')) {
-    const m = clean(subj.textContent).match(/^([A-Z]{3}\d{5})\s*-?\s*(.*)$/);
+  for (const subj of td.querySelectorAll('.subject')) for (const part of subjectParts(clean(subj.textContent))) {
+    // "IMJ32102 - NAME", "SMU32202-NAME", "IMJ41002/IMJ42004 - NAME", "AMJ10803 / EAT153 - NAME"
+    const m = part.match(/^((?:[A-Z]{3}\d{3,5})(?:\s*\/\s*[A-Z]{3}\d{3,5})*)\s*-?\s*(.*)$/);
     if (!m) continue;
+    const codes = m[1].match(/[A-Z]{3}\d{5}/g) || [];
     const tag = clean(subj.parentElement?.querySelector('.activitytag')?.textContent);
-    out.push({
-      course_code: m[1],
+    for (const code of codes) out.push({
+      course_code: code,
       course_name: m[2] ? titleCase(m[2]) : null,
       kind: (tag.match(/^(LECTURE|TUTORIAL|LAB|PRACTICAL|KULIAH|MAKMAL)\b/i) || [])[1] || null,
       venue: clean(td.querySelector('.room')?.textContent).replace(/\s*\(\d+\)$/, '') || null,

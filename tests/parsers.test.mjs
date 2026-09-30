@@ -36,6 +36,16 @@ assert.ok(g1.some((c) => c.course_code === 'IMJ32104' && c.day === 2 && c.start 
 assert.equal(prettyGroup('UR6523002 - Y3G1'), 'Year 3, Group 1');
 ok('timetable: real UniMAP layout (groups, names, lecturers, venues, 11.00 header)');
 
+const cell = (subj) => `<td><div class="line1"><span class="subject">${subj}</span><span class="activitytag"> LECTURE X</span></div><div class="teacher line2">FKC - DR A</div><div class="room line3">DK 1 (300)</div></td>`;
+const { document: m } = parseHTML(`<table><caption><span class="name">UR1 - Y4G1 (25) Automatic Subgroup</span></caption>
+<tr><td></td><th>08:00-08:50</th><th>09:00-09:50</th><th>10:00-10:50</th></tr>
+<tr><th>MONDAY</th>${cell('IMJ41002/IMJ42004 - FINAL YEAR PROJECT 1/2')}${cell('SMU32202-THINKING SKILLS')}${cell('EMK32503 - SUBSTATION ENGINEERING / EMK32803 - ELECTRICAL SUBSTATION TECHNOLOGY')}</tr>
+<tr><th>TUESDAY</th>${cell('AMJ10803 / EAT153 - FUNDAMENTAL OF CHEMICAL PROCESSES')}<td></td><td></td></tr></table>`);
+const mc = parseTimetableDoc(m).classes.map((c) => `${c.course_code}=${c.course_name}`);
+assert.deepEqual(mc, ['IMJ41002=Final Year Project 1/2', 'IMJ42004=Final Year Project 1/2', 'SMU32202=Thinking Skills',
+  'EMK32503=Substation Engineering', 'EMK32803=Electrical Substation Technology', 'AMJ10803=Fundamental of Chemical Processes']);
+ok('timetable: shared codes (A/B - name), "CODE-NAME", two code-name pairs in one cell');
+
 const s = parseSlipLines(['NAME : TEST USER', 'MATRIC NUMBER : 111', 'COURSE REGISTRATION SLIP SEMESTER 1 ACADEMIC SESSION 2026/2027',
   '1 IMJ41002 Projek Tahun Akhir 1[Final Year Project 1] 2 FT UR6523002']);
 assert.deepEqual([s.name, s.matric, s.semester, s.courses[0].code, s.courses[0].name, s.courses[0].credit], ['TEST USER', '111', 'Sem 1 2026/2027', 'IMJ41002', 'Final Year Project 1', 2]);

@@ -69,6 +69,17 @@ select pg_temp.expect(admin_replace_classes('[{"course_code":"IMJ41203","section
 select pg_temp.expect((select count(*) from classes) = 3, 'batches accumulate');
 select pg_temp.expect((select name from courses where code='IMJ99999') = 'New Course' and (select name from courses where code='IMJ41203') = 'Artificial Intelligence', 'timetable fills missing course names only');
 select pg_temp.expect((select count(*) from class_sections(array['IMJ41203'])) = 2, 'class_sections lists groups for a course');
+select admin_replace_classes('[{"course_code":"IMJ99999","course_name":"Better Timetable Name","section":"UR1 - Y1G1","day":2,"start":"08:00","end":"10:00"}]', false);
+select pg_temp.expect((select name from courses where code='IMJ99999') = 'Better Timetable Name', 'a newer timetable name replaces a timetable name');
+reset role;
+select pg_temp.as_user('b');
+select save_courses('[{"code":"IMJ99999","name":"Slip Name","credit":"3"}]', false);
+delete from enrollments where course_code = 'IMJ99999';
+reset role;
+select pg_temp.as_user('a');
+select pg_temp.expect((select name from courses where code='IMJ99999') = 'Slip Name', 'slip name replaces a timetable name');
+select admin_replace_classes('[{"course_code":"IMJ99999","course_name":"Timetable Again","section":"UR1 - Y1G1","day":2,"start":"08:00","end":"10:00"}]', false);
+select pg_temp.expect((select name from courses where code='IMJ99999') = 'Slip Name', 'timetable does not overwrite a slip name');
 update settings set value = 'https://example.edu/t.html' where key = 'timetable_url';
 select pg_temp.expect((select value from settings where key='timetable_url') = 'https://example.edu/t.html', 'admin edits timetable link');
 insert into posts(title) values ('Campus notice');

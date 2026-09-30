@@ -32,6 +32,10 @@ create index if not exists classes_course_idx on public.classes(course_code);
 create index if not exists classes_section_idx on public.classes(section);
 -- the student's timetable group, e.g. 'UR6523002 - Y3G1' (added after first release)
 alter table public.profiles add column if not exists subgroup text;
+-- true when a course name was guessed from the timetable page; a name from a registration slip replaces it.
+-- (Rows that already existed when this column was added count as guessed, so the next slip upload corrects them.)
+alter table public.courses add column if not exists name_from_timetable boolean not null default true;
+alter table public.courses alter column name_from_timetable set default false;
 -- secret for the calendar subscription link (Google / Apple Calendar)
 alter table public.profiles add column if not exists calendar_token uuid not null default gen_random_uuid();
 -- classes a student adds by hand (mix-and-match groups, subjects missing from the university page)
@@ -188,7 +192,10 @@ begin
   for c in select * from jsonb_array_elements(items) loop
     if upper(c->>'code') !~ '^[A-Z]{3}[0-9]{5}$' then continue; end if;
     insert into courses(code, name, credit) values (upper(c->>'code'), left(nullif(c->>'name', ''), 200), nullif(c->>'credit', '')::int)
-      on conflict (code) do update set name = coalesce(courses.name, excluded.name), credit = coalesce(courses.credit, excluded.credit);
+      on conflict (code) do update set
+        name = case when courses.name is null or courses.name_from_timetable then coalesce(excluded.name, courses.name) else courses.name end,
+        name_from_timetable = courses.name_from_timetable and excluded.name is null,
+        credit = coalesce(courses.credit, excluded.credit);
     insert into enrollments(user_id, course_code, status, grp) values (auth.uid(), upper(c->>'code'), left(c->>'status', 5), left(c->>'grp', 30))
       on conflict (user_id, course_code) do update set status = excluded.status, grp = excluded.grp;
   end loop;
@@ -207,11 +214,13 @@ begin
   select x->>'course_code', x->>'section', (x->>'day')::int, x->>'start', x->>'end', left(x->>'kind', 40), left(x->>'venue', 200), left(x->>'lecturer', 300), left(x->>'details', 300)
   from jsonb_array_elements(items) x;
   get diagnostics n = row_count;
-  insert into courses(code, name)
-  select distinct on (x->>'course_code') x->>'course_code', left(x->>'course_name', 200)
+  insert into courses(code, name, name_from_timetable)
+  select distinct on (x->>'course_code') x->>'course_code', left(x->>'course_name', 200), true
   from jsonb_array_elements(items) x
   where x->>'course_code' ~ '^[A-Z]{3}[0-9]{5}$' and coalesce(x->>'course_name', '') <> ''
-  on conflict (code) do update set name = coalesce(courses.name, excluded.name);
+  on conflict (code) do update set
+    name = case when courses.name is null or courses.name_from_timetable then excluded.name else courses.name end,
+    name_from_timetable = courses.name is null or courses.name_from_timetable;
   insert into settings(key, value) values ('timetable_synced_at', now()::text) on conflict (key) do update set value = excluded.value;
   return n;
 end $$;

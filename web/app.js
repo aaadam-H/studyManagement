@@ -210,7 +210,7 @@ async function pgTimetable(m) {
         <option value="" ${!c.section ? 'selected' : ''}>${tt.main && c.groups.includes(tt.main) ? 'Same as main group' : c.groups.length === 1 ? 'Only group: ' + esc(prettyGroup(c.groups[0])) : '- choose -'}</option>
         ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(groupLabel(g))}</option>`).join('')}
         <option value="none" ${c.section === 'none' ? 'selected' : ''}>Hide this subject</option></select>`
-      : '<span class="mute">Not in the university timetable. Add it manually below.</span>'}</td></tr>`).join('')}</table></div>` : ''}
+      : '<span class="mute">Not in the loaded timetable (it may be for a different semester). Add it manually below.</span>'}</td></tr>`).join('')}</table></div>` : ''}
   <div class="card"><h3>${tt.myCourseCount && !noData ? '3. ' : ''}Add a class manually</h3>
     <p class="mute">For classes that are missing or different from the university timetable.</p>
     <form id="mc"><div class="row">
