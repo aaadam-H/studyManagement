@@ -29,6 +29,19 @@ create table if not exists public.classes (
   kind text, venue text, lecturer text, details text
 );
 create index if not exists classes_course_idx on public.classes(course_code);
+create index if not exists classes_section_idx on public.classes(section);
+-- the student's timetable group, e.g. 'UR6523002 - Y3G1' (added after first release)
+alter table public.profiles add column if not exists subgroup text;
+-- classes a student adds by hand (mix-and-match groups, subjects missing from the university page)
+create table if not exists public.my_classes (
+  id bigint generated always as identity primary key,
+  user_id uuid not null default auth.uid() references public.profiles(id) on delete cascade,
+  course_code text, title text check (length(title) <= 200),
+  day int not null check (day between 1 and 7),
+  start_time text not null check (start_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  end_time text not null check (end_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  kind text check (length(kind) <= 40), venue text check (length(venue) <= 200)
+);
 create table if not exists public.posts (
   id bigint generated always as identity primary key,
   course_code text references public.courses(code),          -- null = general notice (admins only)
@@ -107,6 +120,7 @@ alter table public.posts enable row level security;
 alter table public.assignments enable row level security;
 alter table public.grades enable row level security;
 alter table public.notes enable row level security;
+alter table public.my_classes enable row level security;
 
 -- profiles: see yourself (admins see everyone); edit only your own details, never your role or student ID
 drop policy if exists profiles_read on public.profiles;
@@ -114,7 +128,7 @@ create policy profiles_read on public.profiles for select to authenticated using
 drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
 revoke insert, update, delete on public.profiles from anon, authenticated;
-grant update (name, email, phone, program, faculty, year, semester) on public.profiles to authenticated;
+grant update (name, email, phone, program, faculty, year, semester, subgroup) on public.profiles to authenticated;
 
 -- settings, courses, classes: everyone logged in can read; only admins write
 drop policy if exists settings_read on public.settings;
@@ -152,6 +166,10 @@ drop policy if exists own_assignments on public.assignments;
 create policy own_assignments on public.assignments for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 drop policy if exists own_grades on public.grades;
 create policy own_grades on public.grades for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists own_my_classes on public.my_classes;
+create policy own_my_classes on public.my_classes for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists admin_read_my_classes on public.my_classes;
+create policy admin_read_my_classes on public.my_classes for select to authenticated using (public.is_admin());
 drop policy if exists own_notes on public.notes;
 create policy own_notes on public.notes for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
@@ -174,20 +192,32 @@ begin
   end loop;
 end $$;
 
--- Admin: replace the whole class list in one go (after a timetable sync/upload)
-create or replace function public.admin_replace_classes(items jsonb) returns int
+-- Admin: load the class list. The first batch uses replace=true to clear the old list; later batches append.
+-- Course names found in the timetable fill in names that are still missing.
+drop function if exists public.admin_replace_classes(jsonb);
+create or replace function public.admin_replace_classes(items jsonb, replace boolean default true) returns int
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
   if not is_admin() then raise exception 'admin only'; end if;
-  delete from classes where true;
+  if replace then delete from classes where true; end if;
   insert into classes(course_code, section, day, start_time, end_time, kind, venue, lecturer, details)
-  select x->>'course_code', x->>'section', (x->>'day')::int, x->>'start', x->>'end', x->>'kind', x->>'venue', x->>'lecturer', left(x->>'details', 500)
+  select x->>'course_code', x->>'section', (x->>'day')::int, x->>'start', x->>'end', left(x->>'kind', 40), left(x->>'venue', 200), left(x->>'lecturer', 300), left(x->>'details', 300)
   from jsonb_array_elements(items) x;
   get diagnostics n = row_count;
+  insert into courses(code, name)
+  select distinct on (x->>'course_code') x->>'course_code', left(x->>'course_name', 200)
+  from jsonb_array_elements(items) x
+  where x->>'course_code' ~ '^[A-Z]{3}[0-9]{5}$' and coalesce(x->>'course_name', '') <> ''
+  on conflict (code) do update set name = coalesce(courses.name, excluded.name);
   insert into settings(key, value) values ('timetable_synced_at', now()::text) on conflict (key) do update set value = excluded.value;
   return n;
 end $$;
+
+-- Which timetable groups teach which of the given courses (small list; used to pick a group)
+create or replace function public.class_sections(codes text[]) returns table (course_code text, section text)
+language sql stable set search_path = public as
+$$ select distinct c.course_code, c.section from classes c where c.course_code = any(codes) and c.section is not null $$;
 
 create or replace function public.admin_users() returns table (id uuid, student_id text, name text, email text, phone text, program text, role text, created_at timestamptz, courses bigint)
 language plpgsql stable security definer set search_path = public as $$
@@ -235,13 +265,14 @@ begin
     program = left(nullif(trim(data->>'program'), ''), 120),
     faculty = left(nullif(trim(data->>'faculty'), ''), 120),
     year = nullif(data->>'year', '')::int,
-    semester = left(nullif(trim(data->>'semester'), ''), 40)
+    semester = left(nullif(trim(data->>'semester'), ''), 40),
+    subgroup = left(nullif(trim(data->>'subgroup'), ''), 80)
   where id = target;
 end $$;
 
 revoke execute on all functions in schema public from anon, public;
 grant execute on function public.is_admin(), public.is_enrolled(text), public.save_courses(jsonb, boolean),
-  public.admin_replace_classes(jsonb), public.admin_users(), public.admin_set_role(uuid, text),
+  public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_set_role(uuid, text),
   public.admin_reset_password(uuid, text), public.admin_delete_user(uuid),
   public.admin_update_profile(uuid, jsonb) to authenticated;
 

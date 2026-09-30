@@ -44,8 +44,12 @@ Left menu, **Authentication**, then **Sign In / Providers** (or **Providers**), 
 3. Reload the site. An **Admin** tab appears.
 
 ## 8. Load the timetable
-Admin tab, check the timetable link, then **Save & sync now**. If sync fails (university site unreachable from Supabase),
-open the timetable page in your browser, **Save as** HTML, then use **Upload & parse** on the Admin tab.
+Admin tab, paste the university timetable link, then **Save & sync now**. Every group on the page is loaded (about 6,000 classes).
+If sync fails (university site unreachable from Supabase), open the timetable page in your browser, **Save as** HTML,
+then use **Upload & parse** on the Admin tab. Each new semester: paste the new link and sync again.
+
+Students then open **Timetable**, pick their main group, change the group for any subject they take with another group
+(mix and match), and can add classes by hand for anything missing.
 
 ## Good to know
 - **Free-tier pause**: Supabase pauses free projects after about a week with no activity. Open the Supabase dashboard and click **Restore**; no data is lost.

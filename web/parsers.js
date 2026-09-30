@@ -57,7 +57,7 @@ function tableToRows(table) {
       skip();
       const cs = parseInt(td.getAttribute('colspan') || '1', 10) || 1;
       const rs = parseInt(td.getAttribute('rowspan') || '1', 10) || 1;
-      cells.push({ text: cellText(td), colStart: col, colEnd: col + cs - 1 });
+      cells.push({ el: td, text: cellText(td), colStart: col, colEnd: col + cs - 1 });
       if (rs > 1) for (let k = 0; k < cs; k++) carry[col + k] = { left: rs - 1 };
       col += cs;
     }
@@ -65,21 +65,45 @@ function tableToRows(table) {
   }
   return rows;
 }
-function parseCell(text) {
+const titleCase = (t) => t.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase()).replace(/\b(And|Of|In|For|The|To|With)\b/g, (w) => w.toLowerCase()).replace(/\b(Ii|Iii|Iv)\b/g, (w) => w.toUpperCase());
+
+// Cells from FET-generated pages (UniMAP) have labelled parts: .subject, .activitytag, .teacher, .room
+function parseStructuredCell(td) {
+  const out = [];
+  for (const subj of td.querySelectorAll('.subject')) {
+    const m = clean(subj.textContent).match(/^([A-Z]{3}\d{5})\s*-?\s*(.*)$/);
+    if (!m) continue;
+    const tag = clean(subj.parentElement?.querySelector('.activitytag')?.textContent);
+    out.push({
+      course_code: m[1],
+      course_name: m[2] ? titleCase(m[2]) : null,
+      kind: (tag.match(/^(LECTURE|TUTORIAL|LAB|PRACTICAL|KULIAH|MAKMAL)\b/i) || [])[1] || null,
+      venue: clean(td.querySelector('.room')?.textContent).replace(/\s*\(\d+\)$/, '') || null,
+      lecturer: clean(td.querySelector('.teacher')?.textContent).replace(/\b[A-Z]{2,5} - /g, '') || null,
+      details: tag || null,
+    });
+  }
+  return out;
+}
+// Fallback for plain-text cells
+function parseTextCell(text) {
   const code = (text.match(CODE_RE) || [])[0];
-  if (!code) return null;
+  if (!code) return [];
   const rest = text.split('|').map(clean).filter((p) => p && !p.includes(code));
   const flat = text.replace(code, ' ');
   const kindM = flat.match(/\b(LECTURE|TUTORIAL|LAB(?:ORATORY)?|PRACTICAL|KULIAH|MAKMAL)\b/i) || flat.match(/\(\s*([LTP])\s*\)/);
   const venueM = flat.match(/\b((?:[A-Z]{1,4}\s?-?\s?\d{1,3}[A-Z]?(?:\s?-\s?\d+)?)|DK\s?\d+|BK\s?\d+|MP\s?\d+)\b/);
-  return {
+  return [{
     course_code: code,
+    course_name: null,
     kind: kindM ? kindM[1] : null,
     venue: venueM ? clean(venueM[1]) : null,
     lecturer: rest.find((p) => /^(dr|prof|ts|ir|en|pn|cik|mr|ms)\b/i.test(p)) || null,
-    details: clean(rest.join(' | ') || flat),
-  };
+    details: clean(rest.join(' | ') || flat).slice(0, 300),
+  }];
 }
+const parseCell = (c) => (c.el.querySelector('.subject') ? parseStructuredCell(c.el) : parseTextCell(c.text));
+
 function parseTable(table, section) {
   const rows = tableToRows(table);
   const out = [];
@@ -92,12 +116,10 @@ function parseTable(table, section) {
     for (const r of dayRows) {
       const day = dayOf(r[0].text);
       for (const c of r.slice(1)) {
-        const info = parseCell(c.text);
-        if (!info) continue;
         const own = times(c.text);
         const start = slot[c.colStart]?.[0] || own[0];
         const end = (slot[c.colEnd] && (slot[c.colEnd][1] || slot[c.colEnd][0])) || own[1];
-        if (start && end) out.push({ ...info, section, day, start, end });
+        if (start && end) for (const info of parseCell(c)) out.push({ ...info, section, day, start, end });
       }
     }
     return out;
@@ -111,20 +133,28 @@ function parseTable(table, section) {
       const t = r[0] ? times(r[0].text) : [];
       if (!t.length) continue;
       for (const c of r.slice(1)) {
-        const info = parseCell(c.text);
-        if (info && dayByCol[c.colStart]) out.push({ ...info, section, day: dayByCol[c.colStart], start: t[0], end: t[1] || t[0] });
+        if (dayByCol[c.colStart]) for (const info of parseCell(c)) out.push({ ...info, section, day: dayByCol[c.colStart], start: t[0], end: t[1] || t[0] });
       }
     }
   }
   return out;
 }
 function sectionLabel(table, i) {
+  // UniMAP: <caption>...<span class="name">UR6523002 - Y3G1 (25) Automatic Subgroup</span></caption>
+  const named = clean(table.querySelector('caption .name')?.textContent);
+  if (named) return named.replace(/\s*\(\d+\).*$/, '');
   const cap = clean(table.querySelector('caption')?.textContent);
   let prev = table.previousElementSibling;
   while (prev && !/^(H\d|P|B|STRONG|DIV)$/i.test(prev.tagName)) prev = prev.previousElementSibling;
   const p = clean(prev?.textContent);
   return cap || (p && p.length <= 80 ? p : '') || table.id || `Table ${i + 1}`;
 }
+// "UR6523002 - Y3G1" -> "Year 3, Group 1"
+export function prettyGroup(section) {
+  const m = (section || '').match(/Y(\d+)\s*G(\d+)/i);
+  return m ? `Year ${m[1]}, Group ${m[2]}` : section || '';
+}
+
 // `doc` is a parsed Document; `hash` like "table_1103" selects one table if it exists.
 export function parseTimetableDoc(doc, hash) {
   let tables = [...doc.querySelectorAll('table')];

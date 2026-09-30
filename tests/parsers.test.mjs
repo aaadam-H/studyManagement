@@ -2,7 +2,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { parseHTML } from 'linkedom';
-import { parseSlipLines, parseTimetableDoc } from '../web/parsers.js';
+import { parseSlipLines, parseTimetableDoc, prettyGroup } from '../web/parsers.js';
 
 const ok = (m) => console.log('  ok -', m);
 const { document } = parseHTML(fs.readFileSync(new URL('./fixtures/timetable-sample.html', import.meta.url), 'utf8'));
@@ -22,6 +22,19 @@ const { document: d2 } = parseHTML(`<table><tr><th>Time</th><th>Monday</th><th>T
 const b = parseTimetableDoc(d2).classes;
 assert.deepEqual(b.map((c) => [c.course_code, c.day, c.start, c.end]), [['IMJ41103', 1, '08:00', '10:00'], ['IMJ47503', 3, '10:00', '11:00']]);
 ok('timetable: transposed layout (days across)');
+
+// real UniMAP page structure (FET): labelled spans, one table per group
+const { document: u } = parseHTML(fs.readFileSync(new URL('./fixtures/unimap-sample.html', import.meta.url), 'utf8'));
+const all = parseTimetableDoc(u);
+assert.equal(all.tablesScanned, 2);
+assert.deepEqual([...new Set(all.classes.map((c) => c.section))], ['UR6523002 - Y3G1', 'UR6523002 - Y3G2']);
+const g1 = all.classes.filter((c) => c.section === 'UR6523002 - Y3G1');
+assert.equal(g1.length, 10);
+assert.deepEqual(g1[0], { course_code: 'IMJ32102', course_name: 'Professional Engineers', kind: 'LECTURE', venue: 'PAUH PUTRA - DK 5',
+  lecturer: 'ROSDISHAM BIN ENDUT, R BADLISHAH BIN AHMAD', details: 'LECTURE FKC (CE)', section: 'UR6523002 - Y3G1', day: 1, start: '10:00', end: '11:50' });
+assert.ok(g1.some((c) => c.course_code === 'IMJ32104' && c.day === 2 && c.start === '16:00' && c.end === '16:50'), 'single-slot class after colspans');
+assert.equal(prettyGroup('UR6523002 - Y3G1'), 'Year 3, Group 1');
+ok('timetable: real UniMAP layout (groups, names, lecturers, venues, 11.00 header)');
 
 const s = parseSlipLines(['NAME : TEST USER', 'MATRIC NUMBER : 111', 'COURSE REGISTRATION SLIP SEMESTER 1 ACADEMIC SESSION 2026/2027',
   '1 IMJ41002 Projek Tahun Akhir 1[Final Year Project 1] 2 FT UR6523002']);
