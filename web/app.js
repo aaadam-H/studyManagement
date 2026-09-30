@@ -155,6 +155,7 @@ function authScreen(mode = 'login') {
     <div id="msg"></div><p><button>${reg ? 'Register' : 'Log in'}</button></p>
     <p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>
   </form>
+  ${reg ? '' : installHintHtml()}
   ${reg ? '' : `<div class="card intro"><b>What you can do with StudyHub</b><ul>
     <li>Upload your course registration slip and get your weekly timetable automatically</li>
     <li>Mix and match groups, and add your own classes</li>
@@ -165,6 +166,7 @@ function authScreen(mode = 'login') {
   ${FOOTER}</div>`;
   const f = document.getElementById('f');
   if (!reg && f.student_id.value) f.password.focus();
+  wireInstallHint($app);
   const sw2 = document.getElementById('sw2');
   if (sw2) sw2.onclick = (e) => { e.preventDefault(); authScreen('register'); };
   document.getElementById('sw').onclick = (e) => { e.preventDefault(); authScreen(reg ? 'login' : 'register'); };
@@ -219,6 +221,34 @@ async function render() {
 }
 window.addEventListener('hashchange', render);
 sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; authScreen(); } });
+
+/* ---------------- "add to home screen" hint ---------------- */
+// Android Chrome/Edge offer a one-tap install (beforeinstallprompt); iPhone and other browsers get written steps.
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; document.querySelectorAll('.install-btn').forEach((b) => (b.hidden = false)); });
+window.addEventListener('appinstalled', () => { store.set('install_hint', 'done'); document.querySelectorAll('.install-hint').forEach((x) => x.remove()); });
+const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const INSTALL_STEPS = isIOS
+  ? 'In <b>Safari</b>, tap the <b>Share</b> button (the square with an arrow), then <b>Add to Home Screen</b>.'
+  : 'Open your browser menu (<b>⋮</b>) and tap <b>Install app</b> or <b>Add to Home screen</b>.';
+function installHintHtml() {
+  if (isInstalled() || store.get('install_hint') || !matchMedia('(pointer: coarse)').matches) return '';
+  return `<div class="card install-hint"><div class="upd-head"><b>📱 Add StudyHub to your home screen</b><button type="button" class="sm ghost" data-hide-install>Hide</button></div>
+    <p class="mute">It opens like an app, full screen and one tap away. ${INSTALL_STEPS}</p><button type="button" class="install-btn" ${installEvt ? '' : 'hidden'}>Install StudyHub</button></div>`;
+}
+function wireInstallHint(root) {
+  const box = root.querySelector('.install-hint');
+  if (!box) return;
+  box.querySelector('[data-hide-install]').onclick = () => { store.set('install_hint', 'hidden'); box.remove(); };
+  box.querySelector('.install-btn').onclick = async () => {
+    if (!installEvt) return;
+    installEvt.prompt();
+    const { outcome } = await installEvt.userChoice;
+    installEvt = null;
+    if (outcome === 'accepted') { store.set('install_hint', 'done'); box.remove(); }
+  };
+}
 
 /* ---------------- search & filter ---------------- */
 const matches = (text, query) => { const t = text.toLowerCase(); return query.toLowerCase().split(/\s+/).every((w) => t.includes(w)); };
@@ -305,6 +335,7 @@ async function pgDashboard(m) {
   m.innerHTML = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
   ${updates.map((p) => `<div class="card upd" role="status"><div class="upd-head"><span class="tag update">UPDATE</span> <b>${esc(p.title)}</b><button class="sm ghost" data-dismiss="${p.id}" title="Hide this update">Dismiss</button></div>
     ${p.body ? `<p class="fb-msg">${esc(p.body)}</p>` : ''}<span class="mute">ADMIN · ${esc(new Date(p.created_at).toLocaleString())}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''}</span></div>`).join('')}
+  ${installHintHtml()}
   ${today.hol.length ? `<div class="card hol">${today.hol.map((e) => esc(e.title)).join(', ')}${today.classes ? '' : ' · no classes today'}</div>` : ''}
   ${checklist}
   <div class="grid"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
@@ -313,6 +344,7 @@ async function pgDashboard(m) {
   <div class="card"><h3>Upcoming deadlines from the bulletin</h3>${upcoming.length ? upcoming.map((p) => `<div class="post"><b>${esc(p.due_date)}</b> <span class="tag ${esc(p.kind)}">${esc(p.course_code || 'General')}</span> ${esc(p.title)}</div>`).join('') : '<p class="mute">Nothing due. <a href="#/bulletin">Open bulletin</a></p>'}</div>
   <div class="card"><h3>My pending assignments</h3>${pending.slice(0, 6).map((a) => `<div class="post"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${esc(a.due_date || '')}</span></div>`).join('') || '<p class="mute">All clear.</p>'}</div>
 `;
+  wireInstallHint(m);
   m.querySelectorAll('[data-dismiss]').forEach((b) => (b.onclick = async () => {
     b.disabled = true;
     const { error } = await sb.from('update_dismissals').insert({ post_id: +b.dataset.dismiss });
@@ -558,6 +590,7 @@ async function pgHelp(m) {
     ['How does the bulletin work?', 'Each subject has its own board. You can post to subjects you are registered for; add a due date for assignments and tests so they show on everyone\'s Dashboard and Calendar. Admins can post general notices.'],
     ['Who can see my information?', 'Your assignments, grades, notes, own classes and contact details are private (admins can see your profile and timetable to help you). Bulletin posts show your name and student ID to other students.'],
     ['How do I report a problem or a post?', 'Use the <b>Feedback</b> page, or the <b>Report</b> link under any bulletin post. Only admins can read it, and their reply appears on your Feedback page (the menu shows a badge when there is a new reply).'],
+    ['Can I put StudyHub on my phone like an app?', `Yes. ${INSTALL_STEPS} StudyHub then gets its own icon and opens full screen.`],
     ['I forgot my password', 'Ask an admin to reset it (WhatsApp below), then change it in <b>Profile</b>.'],
     ['What do "Lecture week" and the holidays come from?', 'The university\'s academic calendar, uploaded by the admin. See <b>Academic Calendar</b>.'],
   ];

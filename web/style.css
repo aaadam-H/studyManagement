@@ -113,3 +113,5 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 .upd-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.upd-head b{flex:1}
 @keyframes upd-flash{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--brand) 35%,transparent)}}
 @media (prefers-reduced-motion:reduce){.card.upd{animation:none}}
+/* add-to-home-screen hint */
+.install-hint{border-left:4px solid var(--ok)}.install-hint p{margin:6px 0 10px}.install-btn[hidden]{display:none}
