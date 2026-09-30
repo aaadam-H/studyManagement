@@ -40,6 +40,9 @@ select pg_temp.expect_fail($$select admin_users()$$, 'student calling admin_user
 select pg_temp.expect_fail($$select admin_replace_classes('[]')$$, 'student replacing classes');
 update profiles set subgroup = 'UR6523002 - Y3G1' where id = auth.uid();
 select pg_temp.expect((select subgroup from profiles) = 'UR6523002 - Y3G1', 'student sets own timetable group');
+select pg_temp.expect((select onboarded_at is null from profiles), 'new student starts with the setup guide');
+update profiles set onboarded_at = now() where id = auth.uid();
+select pg_temp.expect((select onboarded_at is not null from profiles), 'student can mark setup as done');
 select pg_temp.expect_fail($$select admin_delete_user('00000000-0000-0000-0000-00000000000c')$$, 'student deleting user');
 select pg_temp.expect_fail($$select admin_update_profile('00000000-0000-0000-0000-00000000000c', '{"name":"x"}')$$, 'student editing another profile');
 update settings set value = 'hacked' where key = 'timetable_url';

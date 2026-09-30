@@ -42,6 +42,13 @@ update public.courses set name = regexp_replace(name, '^\s*(/\s*[A-Za-z]{3}\d{3,
 where name ~ '^\s*/\s*[A-Za-z]{3}\d{3,5}';
 -- secret for the calendar subscription link (Google / Apple Calendar)
 alter table public.profiles add column if not exists calendar_token uuid not null default gen_random_uuid();
+-- when the student finished (or skipped) the first-time setup guide; people who already had accounts count as done
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'onboarded_at') then
+    alter table public.profiles add column onboarded_at timestamptz;
+    update public.profiles set onboarded_at = now();
+  end if;
+end $$;
 -- classes a student adds by hand (mix-and-match groups, subjects missing from the university page)
 create table if not exists public.my_classes (
   id bigint generated always as identity primary key,
@@ -169,7 +176,7 @@ create policy profiles_read on public.profiles for select to authenticated using
 drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
 revoke insert, update, delete on public.profiles from anon, authenticated;
-grant update (name, email, phone, program, faculty, year, semester, subgroup) on public.profiles to authenticated;
+grant update (name, email, phone, program, faculty, year, semester, subgroup, onboarded_at) on public.profiles to authenticated;
 
 -- settings, courses, classes: everyone logged in can read; only admins write
 drop policy if exists settings_read on public.settings;

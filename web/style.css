@@ -55,3 +55,17 @@ tr.cur td{font-weight:600;color:var(--brand)}
 tr.past td{opacity:.55}
 .phone-help{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:14px}
 .phone-help ol{margin:6px 0 10px;padding-left:20px}
+/* setup guide + help */
+.steps{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 16px}
+.steps span{font-size:13px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);color:var(--mute)}
+.steps span.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.steps span.done{color:var(--ok);border-color:var(--ok)}
+.wiz-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 20px}
+.grow{flex:1}
+.feat{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:10px}
+.feat>div{background:var(--bg);border-radius:8px;padding:10px 12px}.feat p{margin:4px 0 0;font-size:14px}
+.gs{border-left:4px solid var(--brand)}.gs-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+ul.check{list-style:none;padding:0;margin:8px 0}ul.check li{padding:4px 0}ul.check li.ok{color:var(--mute);text-decoration:line-through}
+.card.intro ul{margin:8px 0;padding-left:20px}.card.intro li{margin:3px 0}
+table.tour td:first-child{white-space:nowrap}
+details.qa{border-bottom:1px solid var(--line);padding:8px 0}details.qa:last-child{border:0}details.qa p{margin:6px 0 2px}

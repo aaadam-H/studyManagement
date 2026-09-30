@@ -9,6 +9,10 @@ const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => 
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a><br><span class="mute">StudyHub © ${new Date().getFullYear()}</span></footer>`;
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
 const loginEmail = (sid) => `${sid.trim().toLowerCase()}@${CFG.LOGIN_EMAIL_DOMAIN || 'students.studyhub.app'}`;
 
 if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('YOUR-PROJECT') || !window.supabase) {
@@ -137,7 +141,17 @@ function authScreen(mode = 'login') {
     <label>Password ${reg ? '<span class="req">*</span> (min 8 characters)' : ''}</label><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">
     <div id="msg"></div><p><button>${reg ? 'Register' : 'Log in'}</button></p>
     <p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>
-  </form>${FOOTER}</div>`;
+  </form>
+  ${reg ? '' : `<div class="card intro"><b>What you can do with StudyHub</b><ul>
+    <li>Upload your course registration slip and get your weekly timetable automatically</li>
+    <li>Mix and match groups, and add your own classes</li>
+    <li>Put your timetable in Google Calendar or Apple Calendar, skipping breaks and public holidays</li>
+    <li>Follow a shared bulletin for assignments and notices, grouped by subject</li>
+    <li>Track your assignments, grades and notes; see the academic calendar and current lecture week</li></ul>
+    <p class="mute">New here? <a href="#" id="sw2">Create an account</a>; a short setup guide walks you through the rest.</p></div>`}
+  ${FOOTER}</div>`;
+  const sw2 = document.getElementById('sw2');
+  if (sw2) sw2.onclick = (e) => { e.preventDefault(); authScreen('register'); };
   document.getElementById('sw').onclick = (e) => { e.preventDefault(); authScreen(reg ? 'login' : 'register'); };
   document.getElementById('f').onsubmit = async (e) => {
     e.preventDefault();
@@ -148,7 +162,7 @@ function authScreen(mode = 'login') {
         const { data, error } = await sb.auth.signUp({ email: loginEmail(student_id), password, options: { data: { student_id: student_id.trim(), ...info } } });
         if (error) throw new Error(/already registered/i.test(error.message) ? 'That student ID is already registered' : error.message);
         if (!data.session) return flash(msg, 'Account created, but Supabase is asking for email confirmation. The admin must turn off "Confirm email" (see SETUP.md).');
-        location.hash = '#/courses';
+        location.hash = '#/welcome';
       } else {
         const { error } = await sb.auth.signInWithPassword({ email: loginEmail(student_id), password });
         if (error) throw new Error(/invalid/i.test(error.message) ? 'Wrong student ID or password' : error.message);
@@ -161,7 +175,7 @@ function authScreen(mode = 'login') {
 /* ---------------- shell ---------------- */
 const ROUTES = {
   '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
-  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile],
+  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], help: ['Help', pgHelp],
 };
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
@@ -171,9 +185,11 @@ async function boot() {
 }
 async function render() {
   if (!me) return authScreen();
-  const key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
+  let key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
+  // first visit: send new students through the setup guide (they can still open Help)
+  if (needsOnboarding() && key !== 'welcome' && key !== 'help') { history.replaceState(null, '', '#/welcome'); key = 'welcome'; }
   const routes = { ...ROUTES, ...(me.role === 'admin' ? { admin: ['Admin', pgAdmin] } : {}) };
-  const [, fn] = routes[key] || routes[''];
+  const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
   $app.innerHTML = `<div class="shell"><nav><h1>StudyHub</h1><small>Personal Management</small>
     ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}</a>`).join('')}
     <div class="who">${esc(me.name)}<br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo">Log out</a></div></nav><div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
@@ -195,14 +211,153 @@ async function pgDashboard(m) {
   const pending = asg.filter((a) => !a.done);
   const overdue = pending.filter((a) => a.due_date && a.due_date < t);
   const upcoming = bul.posts.filter((p) => (!p.course_code || bul.mine.includes(p.course_code)) && p.due_date && p.due_date >= t).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 5);
+  const checklist = await gettingStartedHtml(tt, ac);
   m.innerHTML = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
   ${today.hol.length ? `<div class="card hol">${today.hol.map((e) => esc(e.title)).join(', ')}${today.classes ? '' : ' · no classes today'}</div>` : ''}
+  ${checklist}
   <div class="grid"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
   <div class="card"><h3>Today's classes</h3>${todays.length ? todays.map(clsHtml).join('') : `<p class="mute">No classes today${today.st && today.st.kind !== 'lecture' ? ` (${esc(today.st.label.toLowerCase())})` : ''}.</p>`}
   ${nextHol ? `<p class="mute">Next holiday: ${esc(nextHol.title)}, ${esc(fmtDate(nextHol.start_date))}</p>` : ''}</div>
   <div class="card"><h3>Upcoming deadlines from the bulletin</h3>${upcoming.length ? upcoming.map((p) => `<div class="post"><b>${esc(p.due_date)}</b> <span class="tag ${esc(p.kind)}">${esc(p.course_code || 'General')}</span> ${esc(p.title)}</div>`).join('') : '<p class="mute">Nothing due. <a href="#/bulletin">Open bulletin</a></p>'}</div>
   <div class="card"><h3>My pending assignments</h3>${pending.slice(0, 6).map((a) => `<div class="post"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${esc(a.due_date || '')}</span></div>`).join('') || '<p class="mute">All clear.</p>'}</div>
-  ${tt.myCourseCount ? '' : '<div class="card">Start by uploading your registration slip in <a href="#/courses">My Courses</a>.</div>'}`;
+`;
+  const gsx = document.getElementById('gsx');
+  if (gsx) gsx.onclick = (e) => { e.preventDefault(); store.set('sh_gs_hide_' + me.id, '1'); render(); };
+}
+
+/* ---------------- onboarding: setup guide, checklists, help ---------------- */
+function needsOnboarding() {
+  if (!me) return false;
+  if ('onboarded_at' in me) return !me.onboarded_at && !store.get('sh_onboarded_' + me.id);
+  return false; // database not updated yet: don't force the guide
+}
+async function finishOnboarding() {
+  store.set('sh_onboarded_' + me.id, '1');
+  if ('onboarded_at' in me) {
+    try { me = await q(sb.from('profiles').update({ onboarded_at: new Date().toISOString() }).eq('id', me.id).select().single()); } catch {}
+  }
+  location.hash = '#/';
+  render();
+}
+const FEATURES = [
+  ['Timetable', 'Your weekly classes, built from your registration slip and the university timetable. Mix-and-match groups and your own classes are supported.'],
+  ['Calendar apps', 'Add your timetable to Google Calendar or Apple Calendar. It updates by itself and skips breaks and public holidays.'],
+  ['Bulletin', 'A shared board for each subject: classmates and admins post assignments, tests and notices with due dates.'],
+  ['Academic calendar', 'Semester dates, the current lecture week, breaks, exams and public holidays.'],
+  ['Assignments, grades, notes', 'Your own to-do list with due dates, marks per subject with weighted totals, and private study notes.'],
+  ['Dashboard', "Today's classes, upcoming deadlines and the next holiday at a glance."],
+];
+let wStep = 0;
+async function pgWelcome(m) {
+  const steps = ['Welcome', 'Your subjects', 'Your group', 'Calendar app', 'Finding your way'];
+  const nav = (extra = '') => `<div class="wiz-nav">${wStep > 0 ? '<button type="button" class="ghost" id="wb">Back</button>' : ''}
+    <span class="grow"></span>${extra}${wStep < steps.length - 1 ? '<button type="button" class="ghost" id="ws">Skip this step</button><button type="button" id="wn">Next</button>' : '<button type="button" id="wf">Start using StudyHub</button>'}</div>`;
+  const head = `<h2>Getting started</h2><div class="steps">${steps.map((t, i) => `<span class="${i === wStep ? 'on' : i < wStep ? 'done' : ''}">${i + 1}. ${t}</span>`).join('')}</div>`;
+  let body = '';
+  if (wStep === 0) {
+    body = `<div class="card"><h3>Welcome to StudyHub, ${esc(me.name.split(' ')[0])}</h3>
+      <p>StudyHub keeps your university life in one place. This short guide sets up your timetable and shows you around. It takes about two minutes, and you can skip any step.</p>
+      <div class="feat">${FEATURES.map(([t, d]) => `<div><b>${t}</b><p class="mute">${d}</p></div>`).join('')}</div></div>`;
+  } else if (wStep === 1) {
+    const cs = await myCourses();
+    body = `<div class="card"><h3>Add your subjects</h3>
+      <p>Upload your <b>course registration slip</b> (the PDF from the student portal). StudyHub reads it in your browser and saves only the course list.</p>
+      ${cs.length ? `<p class="ok">You have ${cs.length} subject(s): ${cs.map((c) => esc(c.code)).join(', ')}. Upload again only if they changed.</p>` : ''}
+      ${SLIP_FORM}
+      <p class="mute">No slip? Add subjects by code later in <b>My Courses</b>.</p></div>`;
+  } else if (wStep === 2) {
+    const tt = await getTimetable();
+    body = `<div class="card"><h3>Choose your timetable group</h3>
+      ${!tt.myCourseCount ? '<p>Add your subjects first (previous step); then your group can be chosen here or later on the <b>Timetable</b> page.</p>'
+        : !tt.totalClassesInDb ? '<p>The university timetable has not been loaded yet. When it is, pick your group on the <b>Timetable</b> page. You can add classes by hand there meanwhile.</p>'
+        : !tt.groupOptions.length ? '<p>Your subjects are not in the loaded timetable (it may be for another semester). You can add your classes by hand on the <b>Timetable</b> page.</p>'
+        : `<p>Pick the group you mostly attend classes with. The best matches for your subjects are listed first.</p>
+          <select id="wg"><option value="">- choose your group -</option>${tt.groupOptions.map((o) => `<option value="${esc(o.group)}" ${o.group === tt.main ? 'selected' : ''}>${esc(groupLabel(o.group))} - teaches ${o.n} of your ${tt.myCourseCount} subjects</option>`).join('')}</select>
+          <p class="mute">Take some subjects with another group? Change them one by one on the <b>Timetable</b> page. You can also add your own classes there.</p><div id="wgm"></div>`}</div>`;
+  } else if (wStep === 3) {
+    const [tt, ac] = await Promise.all([getTimetable(), getAcademic()]);
+    body = `<p>Optional: see your classes in the calendar app on your phone. You can do this later from the <b>Timetable</b> page.</p>${calendarCard(tt, ac)}`;
+  } else {
+    body = `<div class="card"><h3>Where things are</h3><table class="tour">
+      <tr><td><b>Dashboard</b></td><td>Today's classes, the current lecture week, deadlines and the next holiday.</td></tr>
+      <tr><td><b>Timetable</b></td><td>Your week. Change groups per subject, add your own classes, connect Google / Apple Calendar.</td></tr>
+      <tr><td><b>Bulletin</b></td><td>Notices per subject. Post assignments and tests for your classmates; add a due date so it shows on everyone's dashboard.</td></tr>
+      <tr><td><b>My Courses</b></td><td>Your registered subjects. Upload a new slip after add/drop.</td></tr>
+      <tr><td><b>Assignments</b></td><td>Your own to-do list with due dates (private).</td></tr>
+      <tr><td><b>Calendar</b></td><td>Month view of classes, deadlines, holidays and breaks.</td></tr>
+      <tr><td><b>Academic Calendar</b></td><td>Semester dates, lecture weeks, exams and public holidays.</td></tr>
+      <tr><td><b>Grades / Notes</b></td><td>Your marks with weighted totals, and private notes.</td></tr>
+      <tr><td><b>Profile</b></td><td>Your details and password.</td></tr>
+      <tr><td><b>Help</b></td><td>How-tos and answers to common questions. You can run this guide again from there.</td></tr>
+      ${me.role === 'admin' ? '<tr><td><b>Admin</b></td><td>Load the timetable and academic calendar, manage users. The Dashboard shows an admin setup checklist.</td></tr>' : ''}</table>
+      <p>Need help? WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p></div>`;
+  }
+  m.innerHTML = head + body + nav();
+  const go = (d) => () => { wStep = Math.max(0, Math.min(steps.length - 1, wStep + d)); pgWelcome(m); window.scrollTo(0, 0); };
+  if (document.getElementById('wb')) document.getElementById('wb').onclick = go(-1);
+  if (document.getElementById('wn')) document.getElementById('wn').onclick = go(1);
+  if (document.getElementById('ws')) document.getElementById('ws').onclick = go(1);
+  if (document.getElementById('wf')) document.getElementById('wf').onclick = () => { wStep = 0; finishOnboarding(); };
+  if (wStep === 1) mountSlipUpload(m, () => { wStep = 2; pgWelcome(m); });
+  const wg = document.getElementById('wg');
+  if (wg) wg.onchange = async () => {
+    try { me = await q(sb.from('profiles').update({ subgroup: wg.value || null }).eq('id', me.id).select().single()); flash(document.getElementById('wgm'), 'Saved', 1); }
+    catch (er) { flash(document.getElementById('wgm'), er.message); }
+  };
+  if (wStep === 3) wireCalendarCard(m);
+}
+
+async function gettingStartedHtml(tt, ac) {
+  let html = '';
+  if (!store.get('sh_gs_hide_' + me.id)) {
+    const items = [
+      [!!(me.email && me.phone && me.program), 'Complete your profile', '#/profile'],
+      [tt.myCourseCount > 0, 'Add your subjects (upload your registration slip)', '#/courses'],
+      ...(tt.totalClassesInDb && tt.myCourseCount ? [[!!tt.main || tt.courses.every((c) => c.chosen || c.section === 'none'), 'Choose your timetable group', '#/timetable']] : []),
+      [!!store.get('sh_cal_' + me.id), 'Add your timetable to Google / Apple Calendar (optional)', '#/timetable'],
+    ];
+    const done = items.filter((i) => i[0]).length;
+    if (done < items.length) html += `<div class="card gs"><div class="gs-head"><h3>Getting started (${done} of ${items.length})</h3><a href="#" id="gsx" class="mute">Hide</a></div>
+      <ul class="check">${items.map(([ok, t, h]) => `<li class="${ok ? 'ok' : ''}">${ok ? '&#10003;' : '&#9675;'} ${ok ? t : `<a href="${h}">${t}</a>`}</li>`).join('')}</ul>
+      <p class="mute">New to StudyHub? See <a href="#/help">Help</a> or <a href="#/welcome">run the setup guide</a>.</p></div>`;
+  }
+  if (me.role === 'admin') {
+    const s = await getSettings();
+    const items = [
+      [!!ac.periods.length, 'Upload the academic calendar PDF'],
+      [!!tt.totalClassesInDb, 'Load the university timetable (link + sync, or upload the saved page)'],
+      [!!(s.timetable_synced_at), 'Timetable loaded at least once'],
+    ];
+    if (items.some((i) => !i[0])) html += `<div class="card gs"><h3>Admin setup</h3><ul class="check">${items.map(([ok, t]) => `<li class="${ok ? 'ok' : ''}">${ok ? '&#10003;' : '&#9675;'} ${ok ? t : `<a href="#/admin">${t}</a>`}</li>`).join('')}</ul></div>`;
+  }
+  return html;
+}
+
+async function pgHelp(m) {
+  const qa = [
+    ['How do I get my timetable?', 'Upload your registration slip in <b>My Courses</b>, then open <b>Timetable</b> and pick your main group. Your classes appear under "Your week".'],
+    ['I take a subject with a different group', 'On <b>Timetable</b>, step 2, change the group for that subject only. Everything else stays with your main group.'],
+    ['A subject says "not in the loaded timetable"', 'The university timetable loaded in StudyHub may be for a different semester, or the subject may not be scheduled. Use <b>Add a class manually</b> on the Timetable page, or ask the admin to load the new timetable.'],
+    ['How do I add my timetable to Google Calendar on my phone?', 'The Google Calendar app cannot add calendars from a link. On the <b>Timetable</b> page tap <b>Copy link</b>, open Google\'s "Add by URL" page in Chrome with <b>Desktop site</b> ticked, paste and add, then turn on <b>Sync</b> for "StudyHub timetable" in the app. On a computer, just click <b>Connect Google Calendar</b>.'],
+    ['iPhone?', 'Tap <b>Subscribe in Apple Calendar</b> on the Timetable page.'],
+    ['My calendar did not update', 'Google refreshes subscribed calendars every few hours (Apple about every 6 hours). Changes in StudyHub appear on the next refresh. The downloaded .ics file is a one-time copy and never updates.'],
+    ['I added/dropped a subject', 'Upload your new slip in <b>My Courses</b> (it replaces the list), or add/remove subjects there by hand.'],
+    ['How does the bulletin work?', 'Each subject has its own board. You can post to subjects you are registered for; add a due date for assignments and tests so they show on everyone\'s Dashboard and Calendar. Admins can post general notices.'],
+    ['Who can see my information?', 'Your assignments, grades, notes, own classes and contact details are private (admins can see your profile and timetable to help you). Bulletin posts show your name and student ID to other students.'],
+    ['I forgot my password', 'Ask an admin to reset it (WhatsApp below), then change it in <b>Profile</b>.'],
+    ['What do "Lecture week" and the holidays come from?', 'The university\'s academic calendar, uploaded by the admin. See <b>Academic Calendar</b>.'],
+  ];
+  m.innerHTML = `<h2>Help</h2><p class="sub">How to use StudyHub.</p>
+  <div class="card"><h3>What StudyHub does</h3><div class="feat">${FEATURES.map(([t, d]) => `<div><b>${t}</b><p class="mute">${d}</p></div>`).join('')}</div>
+    <p><button type="button" id="rg">Run the setup guide again</button></p></div>
+  <div class="card"><h3>Questions</h3>${qa.map(([qq, a]) => `<details class="qa"><summary>${qq}</summary><p>${a}</p></details>`).join('')}</div>
+  ${me.role === 'admin' ? `<div class="card"><h3>For admins</h3><ul>
+    <li><b>Each academic year:</b> Admin, Academic calendar, upload the new Kalendar Akademik PDF.</li>
+    <li><b>Each semester:</b> Admin, paste the new timetable link, Save &amp; sync now (or upload the saved page).</li>
+    <li><b>Users:</b> Admin, View, to see a student's subjects and timetable, edit details, reset a password or delete an account.</li>
+    <li>The full setup guide is SETUP.md in the GitHub repository.</li></ul></div>` : ''}
+  <div class="card"><h3>Still stuck?</h3><p>WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p></div>`;
+  document.getElementById('rg').onclick = () => { wStep = 0; location.hash = '#/welcome'; };
 }
 
 /* ---------------- timetable ---------------- */
@@ -310,6 +465,7 @@ function calendarCard(tt, ac) {
 }
 function wireCalendarCard(m) {
   const msg = document.getElementById('icm');
+  m.querySelectorAll('#ics, .card:has(#ics) a.btn, .cpy').forEach((el) => el.addEventListener('click', () => store.set('sh_cal_' + me.id, '1')));
   document.getElementById('ics').onclick = async () => {
     try {
       const text = await q(sb.rpc('my_calendar_ics'));
@@ -357,10 +513,37 @@ async function pdfToLines(file) {
   }
   return lines;
 }
+const SLIP_FORM = `<form id="up"><label>Registration slip PDF</label><div class="row"><input type="file" name="slip" accept="application/pdf" required><button>Read slip</button></div></form><div id="upmsg"></div><div id="preview"></div>`;
+// Reads the slip PDF in the browser, shows what was found, and saves the courses when confirmed
+function mountSlipUpload(root, onSaved) {
+  root.querySelector('#up').onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = root.querySelector('#upmsg');
+    msg.innerHTML = '<span class="mute">Reading...</span>';
+    try {
+      const p = parseSlipLines(await pdfToLines(e.target.slip.files[0]));
+      if (!p.courses.length) throw new Error('No courses found. Is this the UniMAP course registration slip?');
+      msg.innerHTML = '';
+      root.querySelector('#preview').innerHTML = `<h4>Found on the slip</h4><p>${esc(p.name || '')} · ${esc(p.matric || '')} · ${esc(p.program || '')} · ${esc(p.semester || '')}</p>
+      ${p.matric && p.matric !== me.student_id ? `<div class="err">The matric number on this slip (${esc(p.matric)}) differs from your student ID (${esc(me.student_id)}).</div>` : ''}
+      <table>${p.courses.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit}</td><td>${esc(c.grp)}</td></tr>`).join('')}</table>
+      <p><button id="ok" type="button">Save these ${p.courses.length} courses (replaces current list)</button></p>`;
+      root.querySelector('#ok').onclick = async () => {
+        await q(sb.rpc('save_courses', { items: p.courses, replace: true }));
+        const patch = {};
+        if (p.program && !me.program) patch.program = p.program;
+        if (p.semester) patch.semester = p.semester;
+        if (Object.keys(patch).length) me = (await q(sb.from('profiles').update(patch).eq('id', me.id).select().single()));
+        onSaved(p);
+      };
+    } catch (err) { flash(msg, err.message.startsWith('No courses') || err.message.startsWith('Choose a PDF') ? err.message : 'Could not read that PDF: ' + err.message); }
+  };
+}
+
 async function pgCourses(m) {
   const cs = await myCourses();
   m.innerHTML = `<h2>My Courses</h2><p class="sub">Upload your course registration slip (PDF). It is read in your browser; only the course list is saved.</p>
-  <div class="card"><form id="up"><label>Registration slip PDF</label><div class="row"><input type="file" name="slip" accept="application/pdf" required><button>Read slip</button></div></form><div id="upmsg"></div><div id="preview"></div></div>
+  <div class="card">${SLIP_FORM}</div>
   <div class="card"><h3>Registered courses (${cs.reduce((a, c) => a + (c.credit || 0), 0)} credits)</h3>
   ${cs.length ? `<table><tr><th>Code</th><th>Name</th><th>Credit</th><th>Group</th><th></th></tr>${cs.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit ?? ''}</td><td>${esc(c.grp || '')}</td><td><button class="sm ghost" data-rm="${esc(c.code)}">Remove</button></td></tr>`).join('')}</table>` : '<p class="mute">None yet.</p>'}
   <h4>Add a course manually</h4><form id="add" class="row"><div><label>Code</label><input name="code" placeholder="IMJ41103" required pattern="[A-Za-z]{3}[0-9]{5}"></div><div><label>Name</label><input name="name"></div><button>Add</button></form><div id="addmsg"></div></div>`;
@@ -371,28 +554,7 @@ async function pgCourses(m) {
     try { await q(sb.rpc('save_courses', { items: [{ code: code.toUpperCase(), name }], replace: false })); render(); }
     catch (err) { flash(document.getElementById('addmsg'), err.message); }
   };
-  document.getElementById('up').onsubmit = async (e) => {
-    e.preventDefault();
-    const msg = document.getElementById('upmsg');
-    msg.innerHTML = '<span class="mute">Reading...</span>';
-    try {
-      const p = parseSlipLines(await pdfToLines(e.target.slip.files[0]));
-      if (!p.courses.length) throw new Error('No courses found. Is this the UniMAP course registration slip?');
-      msg.innerHTML = '';
-      document.getElementById('preview').innerHTML = `<h4>Found on the slip</h4><p>${esc(p.name || '')} · ${esc(p.matric || '')} · ${esc(p.program || '')} · ${esc(p.semester || '')}</p>
-      ${p.matric && p.matric !== me.student_id ? `<div class="err">The matric number on this slip (${esc(p.matric)}) differs from your student ID (${esc(me.student_id)}).</div>` : ''}
-      <table>${p.courses.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit}</td><td>${esc(c.grp)}</td></tr>`).join('')}</table>
-      <p><button id="ok">Save these ${p.courses.length} courses (replaces current list)</button></p>`;
-      document.getElementById('ok').onclick = async () => {
-        await q(sb.rpc('save_courses', { items: p.courses, replace: true }));
-        const patch = {};
-        if (p.program && !me.program) patch.program = p.program;
-        if (p.semester) patch.semester = p.semester;
-        if (Object.keys(patch).length) me = (await q(sb.from('profiles').update(patch).eq('id', me.id).select().single()));
-        render();
-      };
-    } catch (err) { flash(msg, err.message.startsWith('No courses') ? err.message : 'Could not read that PDF: ' + err.message); }
-  };
+  mountSlipUpload(m, render);
 }
 
 /* ---------------- bulletin ---------------- */

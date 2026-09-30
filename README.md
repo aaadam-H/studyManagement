@@ -9,6 +9,7 @@ Multi-user study planner for UniMAP students. Static site on **GitHub Pages**, d
 - **Academic calendar**: admins upload the university's Kalendar Akademik PDF; students see the current lecture week, breaks and public holidays, and exports skip them.
 - **Personal**: dashboard, assignments, calendar, grades, notes (private to each user).
 - **Admin**: timetable source, user list, promote/demote, reset passwords, delete users.
+- **Getting started**: new students get a short setup guide (slip, group, calendar app, tour), a Dashboard checklist, and a Help page.
 
 **Setup:** follow [SETUP.md](SETUP.md).
 
