@@ -2,7 +2,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { parseHTML } from 'linkedom';
-import { parseSlipLines, parseTimetableDoc, prettyGroup } from '../web/parsers.js';
+import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus } from '../web/parsers.js';
 
 const ok = (m) => console.log('  ok -', m);
 const { document } = parseHTML(fs.readFileSync(new URL('./fixtures/timetable-sample.html', import.meta.url), 'utf8'));
@@ -45,6 +45,27 @@ const mc = parseTimetableDoc(m).classes.map((c) => `${c.course_code}=${c.course_
 assert.deepEqual(mc, ['IMJ41002=Final Year Project 1/2', 'IMJ42004=Final Year Project 1/2', 'SMU32202=Thinking Skills',
   'EMK32503=Substation Engineering', 'EMK32803=Electrical Substation Technology', 'AMJ10803=Fundamental of Chemical Processes']);
 ok('timetable: shared codes (A/B - name), "CODE-NAME", two code-name pairs in one cell');
+
+// academic calendar: text lines of the UniMAP 2026/2027 Kalendar Akademik PDF (same line-building as the browser)
+const ac = parseAcademicCalendarLines(fs.readFileSync(new URL('./fixtures/academic-calendar-2026-2027.txt', import.meta.url), 'utf8').split('\n'));
+assert.equal(ac.session, '2026/2027');
+assert.deepEqual(ac.warnings, []);
+assert.deepEqual(ac.periods.map((p) => `${p.semester.slice(0, 10)} ${p.kind} ${p.start} ${p.end}`), [
+  'Semester 1 registration 2026-09-28 2026-10-04', 'Semester 1 lecture 2026-10-05 2026-11-29', 'Semester 1 mid_break 2026-11-30 2026-12-06',
+  'Semester 1 lecture 2026-12-07 2027-01-17', 'Semester 1 revision 2027-01-18 2027-01-24', 'Semester 1 exam 2027-01-25 2027-02-07',
+  'Semester 1 semester_break 2027-02-08 2027-03-07', 'Semester 2 lecture 2027-03-08 2027-05-16', 'Semester 2 mid_break 2027-05-17 2027-05-23',
+  'Semester 2 lecture 2027-05-24 2027-06-20', 'Semester 2 revision 2027-06-21 2027-06-27', 'Semester 2 exam 2027-06-28 2027-07-11']);
+assert.equal(ac.events.length, 18);
+const ev = (t) => ac.events.find((e) => e.title.includes(t));
+assert.deepEqual(ev('Chinese New Year'), { title: 'Tahun Baru Cina / Chinese New Year', start: '2027-02-06', end: '2027-02-07', no_class: true });
+assert.deepEqual(ev('Konvokesyen'), { title: 'Cadangan tarikh Istiadat Konvokesyen 21', start: '2026-11-14', end: '2026-11-17', no_class: false });
+assert.equal(ev('Online Teaching').no_class, false);
+assert.equal(ev('Orientation').no_class, false);
+assert.ok(ev('Malaysia Day') && ev('Deepavali').start === '2026-11-08');
+const P = ac.periods.map((p) => ({ ...p, start_date: p.start, end_date: p.end }));
+assert.deepEqual(academicStatus(P, '2026-12-08'), { semester: 'Semester 1 2026/2027', kind: 'lecture', label: 'Lectures', week: 9, totalWeeks: 14 });
+assert.equal(academicStatus(P, '2026-12-02').kind, 'mid_break');
+ok('academic calendar: periods from week counts, holidays, lecture week number');
 
 const s = parseSlipLines(['NAME : TEST USER', 'MATRIC NUMBER : 111', 'COURSE REGISTRATION SLIP SEMESTER 1 ACADEMIC SESSION 2026/2027',
   '1 IMJ41002 Projek Tahun Akhir 1[Final Year Project 1] 2 FT UR6523002']);

@@ -36,6 +36,10 @@ alter table public.profiles add column if not exists subgroup text;
 -- (Rows that already existed when this column was added count as guessed, so the next slip upload corrects them.)
 alter table public.courses add column if not exists name_from_timetable boolean not null default true;
 alter table public.courses alter column name_from_timetable set default false;
+-- repair names damaged by an older timetable reader: '/Imj42004 - Final Year Project 1/2' -> 'Final Year Project 1/2'
+-- (still marked as a guess, so the student's registration slip name replaces it on the next save)
+update public.courses set name = regexp_replace(name, '^\s*(/\s*[A-Za-z]{3}\d{3,5}\s*)+-?\s*', ''), name_from_timetable = true
+where name ~ '^\s*/\s*[A-Za-z]{3}\d{3,5}';
 -- secret for the calendar subscription link (Google / Apple Calendar)
 alter table public.profiles add column if not exists calendar_token uuid not null default gen_random_uuid();
 -- classes a student adds by hand (mix-and-match groups, subjects missing from the university page)
@@ -47,6 +51,19 @@ create table if not exists public.my_classes (
   start_time text not null check (start_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
   end_time text not null check (end_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
   kind text check (length(kind) <= 40), venue text check (length(venue) <= 200)
+);
+-- academic calendar (uploaded by an admin from the university PDF)
+create table if not exists public.academic_periods (
+  id bigint generated always as identity primary key,
+  session text, semester text not null,
+  kind text not null check (kind in ('registration','lecture','mid_break','revision','exam','semester_break','other')),
+  label text, start_date date not null, end_date date not null check (end_date >= start_date)
+);
+create table if not exists public.academic_events (
+  id bigint generated always as identity primary key,
+  title text not null check (length(title) <= 300),
+  start_date date not null, end_date date not null check (end_date >= start_date),
+  no_class boolean not null default true          -- public holiday: classes are skipped in calendar exports
 );
 create table if not exists public.posts (
   id bigint generated always as identity primary key,
@@ -127,6 +144,8 @@ alter table public.assignments enable row level security;
 alter table public.grades enable row level security;
 alter table public.notes enable row level security;
 alter table public.my_classes enable row level security;
+alter table public.academic_periods enable row level security;
+alter table public.academic_events enable row level security;
 
 -- profiles: see yourself (admins see everyone); edit only your own details, never your role or student ID
 drop policy if exists profiles_read on public.profiles;
@@ -146,6 +165,11 @@ create policy courses_read on public.courses for select to authenticated using (
 drop policy if exists classes_read on public.classes;
 create policy classes_read on public.classes for select to authenticated using (true);
 revoke insert, update, delete on public.courses, public.classes from anon, authenticated;
+drop policy if exists periods_read on public.academic_periods;
+create policy periods_read on public.academic_periods for select to authenticated using (true);
+drop policy if exists events_read on public.academic_events;
+create policy events_read on public.academic_events for select to authenticated using (true);
+revoke insert, update, delete on public.academic_periods, public.academic_events from anon, authenticated;
 
 -- enrollments: your own; adding goes through save_courses(); you may change only the chosen section
 drop policy if exists enroll_read on public.enrollments;
@@ -328,15 +352,49 @@ begin
   return out;
 end $$;
 
--- Build the .ics for one student. Weekly repeating events from the semester start to end (Admin > Semester dates),
--- skipping the mid-semester break. Without dates: this week + 14 weeks. Times are Malaysia time.
+-- The semester used for timetable exports. With an academic calendar: the admin's choice (setting 'teaching_semester'),
+-- else the semester whose lectures are running or come next. Without one: the manual dates in settings.
+create or replace function public.teaching_window()
+returns table (sem_label text, first_day date, last_day date, from_calendar boolean)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  sem text := nullif((select value from settings where key = 'teaching_semester'), '');
+  s date; e date;
+begin
+  if sem is null or not exists (select 1 from academic_periods p where p.semester = sem and p.kind = 'lecture') then
+    sem := null;
+    select p.semester into sem from academic_periods p where p.kind = 'lecture'
+      group by p.semester having max(p.end_date) >= current_date order by min(p.start_date) limit 1;
+    if sem is null then
+      select p.semester into sem from academic_periods p where p.kind = 'lecture' group by p.semester order by max(p.end_date) desc limit 1;
+    end if;
+  end if;
+  if sem is not null then
+    return query select sem, min(p.start_date), max(p.end_date), true from academic_periods p where p.semester = sem and p.kind = 'lecture';
+    return;
+  end if;
+  s := coalesce(nullif((select value from settings where key = 'semester_start'), '')::date, date_trunc('week', current_date)::date);
+  e := coalesce(nullif((select value from settings where key = 'semester_end'), '')::date, s + 14 * 7 - 1);
+  if e < s then e := s + 14 * 7 - 1; end if;
+  return query select null::text, s, e, false;
+end $$;
+
+-- No classes on this day: a break/exam/etc. inside the teaching semester, a public holiday,
+-- or (without an academic calendar) the manual break dates
+create or replace function public.no_class_day(d date, sem text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from academic_periods p where p.semester = sem and p.kind <> 'lecture' and d between p.start_date and p.end_date)
+      or exists (select 1 from academic_events e where e.no_class and d between e.start_date and e.end_date)
+      or (sem is null and d between nullif((select value from settings where key = 'break_start'), '')::date
+                                and nullif((select value from settings where key = 'break_end'), '')::date)
+$$;
+
+-- Build the .ics for one student: weekly classes across the teaching semester (skipping breaks and public holidays),
+-- plus the academic calendar's holidays and breaks as all-day events. Times are Malaysia time.
 create or replace function public.build_ics(uid uuid) returns text
 language plpgsql stable security definer set search_path = public as $$
 declare
-  s_start date := coalesce(nullif((select value from settings where key = 'semester_start'), '')::date, date_trunc('week', current_date)::date);
-  s_end   date := coalesce(nullif((select value from settings where key = 'semester_end'), '')::date, s_start + 14 * 7 - 1);
-  b_start date := nullif((select value from settings where key = 'break_start'), '')::date;
-  b_end   date := nullif((select value from settings where key = 'break_end'), '')::date;
+  w record;
   who text := (select name from profiles where id = uid);
   lines text[] := array['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//StudyHub//Timetable//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     'X-WR-CALNAME:' || ics_text('StudyHub timetable' || coalesce(' - ' || who, '')), 'X-WR-TIMEZONE:Asia/Kuala_Lumpur',
@@ -344,18 +402,16 @@ declare
     'BEGIN:VTIMEZONE', 'TZID:Asia/Kuala_Lumpur', 'BEGIN:STANDARD', 'DTSTART:19700101T000000', 'TZOFFSETFROM:+0800', 'TZOFFSETTO:+0800', 'TZNAME:MYT', 'END:STANDARD', 'END:VTIMEZONE'];
   r record; first date; d date; ex text; stamp text := to_char(now() at time zone 'utc', 'YYYYMMDD"T"HH24MISS"Z"');
 begin
-  if s_end < s_start then s_end := s_start + 14 * 7 - 1; end if;
+  select * into w from teaching_window();
   for r in select * from timetable_rows(uid) loop
-    first := s_start + ((r.day - extract(isodow from s_start)::int + 7) % 7);
-    if first > s_end then continue; end if;
+    first := w.first_day + ((r.day - extract(isodow from w.first_day)::int + 7) % 7);
+    if first > w.last_day then continue; end if;
     ex := null;
-    if b_start is not null and b_end is not null then
-      d := first;
-      while d <= least(b_end, s_end) loop
-        if d >= b_start then ex := coalesce(ex || ',', '') || to_char(d, 'YYYYMMDD') || 'T' || replace(r.start_time, ':', '') || '00'; end if;
-        d := d + 7;
-      end loop;
-    end if;
+    d := first;
+    while d <= w.last_day loop
+      if no_class_day(d, w.sem_label) then ex := coalesce(ex || ',', '') || to_char(d, 'YYYYMMDD') || 'T' || replace(r.start_time, ':', '') || '00'; end if;
+      d := d + 7;
+    end loop;
     lines := lines || array_remove(array[
       'BEGIN:VEVENT',
       'UID:' || md5(uid::text || r.course_code || coalesce(r.section, '') || r.day || r.start_time || coalesce(r.venue, '')) || '@studyhub',
@@ -363,7 +419,7 @@ begin
       'DTSTART;TZID=Asia/Kuala_Lumpur:' || to_char(first, 'YYYYMMDD') || 'T' || replace(r.start_time, ':', '') || '00',
       'DTEND;TZID=Asia/Kuala_Lumpur:' || to_char(first, 'YYYYMMDD') || 'T' || replace(r.end_time, ':', '') || '00',
       -- UNTIL is in UTC: 23:59:59 Malaysia time on the last day
-      'RRULE:FREQ=WEEKLY;UNTIL=' || to_char(s_end, 'YYYYMMDD') || 'T155959Z',
+      'RRULE:FREQ=WEEKLY;UNTIL=' || to_char(w.last_day, 'YYYYMMDD') || 'T155959Z',
       ics_fold('SUMMARY:' || ics_text(coalesce(r.course_code || ' ', '') || coalesce(r.course_name, '') || coalesce(' (' || initcap(r.kind) || ')', ''))),
       case when coalesce(r.venue, '') <> '' then ics_fold('LOCATION:' || ics_text(r.venue)) end,
       ics_fold('DESCRIPTION:' || ics_text(concat_ws(E'\n', 'Lecturer: ' || r.lecturer,
@@ -371,8 +427,32 @@ begin
     if ex is not null then lines := lines || ics_fold('EXDATE;TZID=Asia/Kuala_Lumpur:' || ex); end if;
     lines := lines || 'END:VEVENT'::text;
   end loop;
+  -- academic calendar as all-day events (holidays, breaks, revision, exams)
+  for r in select e.title, e.start_date, e.end_date from academic_events e
+           union all
+           select p.label || ' (' || p.semester || ')', p.start_date, p.end_date from academic_periods p where p.kind <> 'lecture'
+           order by 2 loop
+    lines := lines || array['BEGIN:VEVENT', 'UID:' || md5(r.title || r.start_date) || '-cal@studyhub', 'DTSTAMP:' || stamp,
+      'DTSTART;VALUE=DATE:' || to_char(r.start_date, 'YYYYMMDD'), 'DTEND;VALUE=DATE:' || to_char(r.end_date + 1, 'YYYYMMDD'),
+      ics_fold('SUMMARY:' || ics_text(r.title)), 'TRANSP:TRANSPARENT', 'END:VEVENT'];
+  end loop;
   lines := lines || 'END:VCALENDAR'::text;
   return array_to_string(lines, E'\r\n') || E'\r\n';
+end $$;
+
+-- Admin: replace the academic calendar (periods + dated events) in one go
+create or replace function public.admin_save_academic_calendar(periods jsonb, events jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'admin only'; end if;
+  delete from academic_periods where true;
+  delete from academic_events where true;
+  insert into academic_periods(session, semester, kind, label, start_date, end_date)
+  select left(x->>'session', 20), left(x->>'semester', 60), x->>'kind', left(x->>'label', 80), (x->>'start')::date, (x->>'end')::date
+  from jsonb_array_elements(periods) x;
+  insert into academic_events(title, start_date, end_date, no_class)
+  select left(x->>'title', 300), (x->>'start')::date, (x->>'end')::date, coalesce((x->>'no_class')::boolean, true)
+  from jsonb_array_elements(events) x;
 end $$;
 
 -- Download for the logged-in student
@@ -409,7 +489,7 @@ grant execute on function public.is_admin(), public.is_enrolled(text), public.sa
   public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_set_role(uuid, text),
   public.admin_reset_password(uuid, text), public.admin_delete_user(uuid),
   public.admin_update_profile(uuid, jsonb), public.my_timetable(uuid), public.my_calendar_ics(),
-  public.reset_calendar_token() to authenticated;
+  public.reset_calendar_token(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb) to authenticated;
 grant execute on function public.calendar_feed(uuid) to anon, authenticated;
 
 -- ---------- make yourself admin (run once after you register, with your own student ID) ----------

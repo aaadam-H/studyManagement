@@ -46,3 +46,10 @@ footer{border-top:1px solid var(--line);padding:14px 24px;font-size:13px;color:v
 .btn.ghost-link{background:transparent;color:var(--ink);border:1px solid var(--line)}
 details{margin-top:12px}summary{cursor:pointer;color:var(--brand)}
 .btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cal .e.holi{color:var(--bad);font-weight:600}
+.cal .e.per{color:var(--mute);font-style:italic}
+.cal .d.brk{background:var(--bg)}
+.card.hol{border-left:4px solid var(--bad)}
+.card.now{border-left:4px solid var(--brand)}
+tr.cur td{font-weight:600;color:var(--brand)}
+tr.past td{opacity:.55}

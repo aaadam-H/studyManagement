@@ -105,7 +105,7 @@ select pg_temp.as_user('b');
 update enrollments set section = 'UR1 - Y1G2' where course_code = 'IMJ41203';
 select pg_temp.expect((select count(*) from my_timetable()) = 2, 'my_timetable: chosen group + own class');
 create temp table ics as select my_calendar_ics() as t;
-grant select on ics to authenticated;
+grant select, insert, delete on ics to authenticated;
 select pg_temp.expect((select t like '%DTSTART;TZID=Asia/Kuala_Lumpur:20261007T080000%' from ics), 'ics: Wednesday class starts first Wednesday of semester');
 select pg_temp.expect((select t like '%DTSTART;TZID=Asia/Kuala_Lumpur:20261006T140000%' from ics), 'ics: own Tuesday class included');
 select pg_temp.expect((select t like '%RRULE:FREQ=WEEKLY;UNTIL=20261227T155959Z%' from ics), 'ics: repeats weekly until semester end');
@@ -135,6 +135,37 @@ select pg_temp.expect(reset_calendar_token() <> (select t from tok), 'reset give
 reset role;
 set role anon;
 select pg_temp.expect((select calendar_feed(t) from tok) is null, 'old link stops working');
+reset role;
+
+-- academic calendar drives the export
+select pg_temp.as_user('b');
+reset role;
+select pg_temp.as_user('a');
+select admin_save_academic_calendar(
+  '[{"session":"2026/2027","semester":"Semester 1 2026/2027","kind":"lecture","label":"Lectures","start":"2026-10-05","end":"2026-11-29"},
+    {"session":"2026/2027","semester":"Semester 1 2026/2027","kind":"mid_break","label":"Mid-semester break","start":"2026-11-30","end":"2026-12-06"},
+    {"session":"2026/2027","semester":"Semester 1 2026/2027","kind":"lecture","label":"Lectures","start":"2026-12-07","end":"2027-01-17"},
+    {"session":"2026/2027","semester":"Semester 1 2026/2027","kind":"exam","label":"Final examination","start":"2027-01-25","end":"2027-02-07"},
+    {"session":"2026/2027","semester":"Semester 2 2026/2027","kind":"lecture","label":"Lectures","start":"2027-03-08","end":"2027-05-16"}]',
+  '[{"title":"Test Holiday","start":"2026-10-20","end":"2026-10-20","no_class":true},
+    {"title":"Convocation","start":"2026-11-17","end":"2026-11-17","no_class":false},
+    {"title":"Hari Krismas / Christmas","start":"2026-12-25","end":"2026-12-25"}]');
+insert into settings(key, value) values ('teaching_semester', 'Semester 1 2026/2027') on conflict (key) do update set value = excluded.value;
+select pg_temp.expect((select sem_label || first_day || last_day from teaching_window()) = 'Semester 1 2026/20272026-10-052027-01-17', 'teaching window = lecture weeks of the chosen semester');
+reset role;
+select pg_temp.as_user('b');
+
+delete from ics;
+insert into ics select my_calendar_ics();
+select pg_temp.expect((select t like '%DTSTART;TZID=Asia/Kuala_Lumpur:20261006T140000%' and t like '%RRULE:FREQ=WEEKLY;UNTIL=20270117T155959Z%' from ics), 'ics: classes run from first to last lecture week');
+select pg_temp.expect((select t like '%20261020T140000%' and t like '%20261201T140000%' and t not like '%20261117T140000%' from ics), 'ics: skips holiday + mid-sem break, not info events');
+select pg_temp.expect((select t like '%DTSTART;VALUE=DATE:20261225%' and t like '%SUMMARY:Mid-semester break (Semester 1 2026/2027)%' from ics), 'ics: holidays and breaks as all-day events');
+reset role;
+insert into auth.users(id, email, raw_user_meta_data) values ('00000000-0000-0000-0000-00000000000d', 'dan@x', '{"student_id":"555","name":"Dan"}');
+select pg_temp.as_user('d');
+select pg_temp.expect_fail($$select admin_save_academic_calendar('[]', '[]')$$, 'student replacing academic calendar');
+select pg_temp.expect((select count(*) from academic_events) = 3 and (select count(*) from academic_periods) = 5, 'students can read the academic calendar');
+select pg_temp.expect_fail($$insert into academic_events(title, start_date, end_date) values ('x', current_date, current_date)$$, 'student adding a holiday directly');
 reset role;
 
 -- anon (not logged in) sees nothing

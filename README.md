@@ -6,6 +6,7 @@ Multi-user study planner for UniMAP students. Static site on **GitHub Pages**, d
 - **Registration slip**: upload the UniMAP course registration slip PDF; it is read in the browser and your courses are saved.
 - **Timetable**: built from your courses + the university timetable page (all groups). Students pick a main group, can mix and match groups per subject, and add classes by hand. Export to Google Calendar / Apple Calendar (live subscription link or .ics download). Admins can change the link and re-sync, or upload the saved page.
 - **Bulletin**: shared board grouped by subject for assignments, exams and notices. Students post to subjects they're registered for; admins can post general notices.
+- **Academic calendar**: admins upload the university's Kalendar Akademik PDF; students see the current lecture week, breaks and public holidays, and exports skip them.
 - **Personal**: dashboard, assignments, calendar, grades, notes (private to each user).
 - **Admin**: timetable source, user list, promote/demote, reset passwords, delete users.
 

@@ -56,7 +56,9 @@ Students then open **Timetable**, pick their main group, change the group for an
    paste `supabase/functions/calendar-feed/index.ts`, **Deploy**.
 2. Open the function's **Details** and turn **Verify JWT / Enforce JWT verification OFF**. Calendar apps can't log in;
    each student's link carries a secret token instead, and the database only answers for a valid token.
-3. Site, **Admin**, **Semester dates**: set the semester start/end and the mid-semester break, then **Save dates**.
+3. Site, **Admin**, **Academic calendar**: upload the university's Kalendar Akademik PDF, check the preview (untick "No classes"
+   for info-only items), then **Save**. This sets lecture weeks, breaks and public holidays for the Calendar page and for exports.
+   Upload the new PDF each academic year. (No PDF? Use **Manual semester dates** instead.)
 
 Students then use the **Add to your calendar app** box on the Timetable page: **Download .ics** (Apple Calendar / Outlook,
 one-time copy), **Connect Google Calendar** or **Subscribe in Apple Calendar** (live, updates by itself).

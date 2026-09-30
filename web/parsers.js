@@ -185,3 +185,103 @@ export function parseTimetableDoc(doc, hash) {
     classes: all.filter((c) => { const k = [c.course_code, c.section, c.day, c.start, c.end, c.venue].join('|'); return !seen.has(k) && seen.add(k); }),
   };
 }
+
+/* ---------- UniMAP academic calendar (Kalendar Akademik) ---------- */
+// `lines` = text lines of the PDF. Returns the session, each semester's periods (lectures, breaks, exams...)
+// built by giving each activity its "(N MINGGU/WEEKS)" worth of week rows, and the dated notes (holidays, events).
+const ACTIVITY_RE = /Pendaftaran Pelajar Baharu\s*\/?|Registration for New Students|KULIAH\s*\/\s*LECTURES|CUTI PERT\.?\s*SEMESTER\s*\/?|MID\.?\s*SEMESTER BREAK|MINGGU ULANG KAJI\s*\/?|REVISION WEEKS?|PEPERIKSAAN(?:\s+AKHIR)?\s*\/?|(?:FINAL\s+)?EXAMINATION|CUTI ANTARA (?:SEMESTER|SIDANG)\s*\/?|SEMESTER BREAK|TUTORIAL/gi;
+const COUNT_RE = /\((\d+)\s*MINGGU\s*\/\s*WEEKS?\)/gi;
+const RANGE_RE = /(\d{2})\.(\d{2})\.(\d{4})\s*(?:to|-|hingga)\s*(\d{2})\.(\d{2})\.(\d{4})/;
+const PERIOD_LABEL = { registration: 'Registration & orientation', lecture: 'Lectures', mid_break: 'Mid-semester break',
+  revision: 'Revision week', exam: 'Final examination', semester_break: 'Semester break' };
+function activityKind(t) {
+  if (/pendaftaran|registration/i.test(t)) return 'registration';
+  if (/kuliah|lectures/i.test(t)) return 'lecture';
+  if (/cuti pert|mid\.?\s*semester/i.test(t)) return 'mid_break';
+  if (/ulang kaji|revision/i.test(t)) return 'revision';
+  if (/peperiksaan|examination/i.test(t)) return 'exam';
+  if (/cuti antara|semester break/i.test(t)) return 'semester_break';
+  return 'other';
+}
+const isoDate = (d, m, y) => `${y}-${m}-${d}`;
+const addDays = (iso, n) => { const t = new Date(iso + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+
+export function parseAcademicCalendarLines(lines) {
+  const text = lines.join('\n');
+  const session = (text.match(/(\d{4}\/\d{4})/) || [])[1] || '';
+  const warnings = [];
+  // split into semesters; the short/additional semester uses a two-column layout and is left out
+  const sems = [];
+  let cur = null;
+  for (const line of lines) {
+    const h = line.match(/^\s*SEMESTER\s+(\d)\b/i);
+    if (h) { cur = { name: `Semester ${h[1]}${session ? ' ' + session : ''}`, lines: [] }; sems.push(cur); continue; }
+    if (/SEM\.\s*TAMBAHAN|SHORT\s*SEM|SEM\.\s*PENDEK/i.test(line)) { cur = null; continue; }
+    if (cur) cur.lines.push(line);
+  }
+  // the first week row can sit above the "SEMESTER 1" line; fold any leading ranges into semester 1
+  const firstSem = lines.findIndex((l) => /^\s*SEMESTER\s+\d/i.test(l));
+  if (sems[0]) sems[0].lines.unshift(...lines.slice(0, Math.max(firstSem, 0)).filter((l) => RANGE_RE.test(l.trim().slice(0, 30))));
+  const periods = [];
+  for (const s of sems) {
+    const weeks = s.lines.map((l) => l.trim().match(new RegExp('^' + RANGE_RE.source))).filter(Boolean)
+      .map((m) => ({ start: isoDate(m[1], m[2], m[3]), end: isoDate(m[4], m[5], m[6]) }))
+      .sort((a, b) => a.start.localeCompare(b.start));
+    // activities in reading order, bilingual halves merged, each with its week count
+    const body = s.lines.join(' ').replace(new RegExp(RANGE_RE.source, 'g'), ' ');
+    const acts = [];
+    const tokens = [...body.matchAll(new RegExp(`${ACTIVITY_RE.source}|${COUNT_RE.source}`, 'gi'))];
+    for (const t of tokens) {
+      if (t[1]) { const last = acts[acts.length - 1]; if (last && last.weeks == null) last.weeks = +t[1]; continue; }
+      const kind = activityKind(t[0]);
+      const last = acts[acts.length - 1];
+      if (last && last.kind === kind && last.weeks == null) continue; // Malay + English halves of one label
+      acts.push({ kind, weeks: null });
+    }
+    let i = 0;
+    for (const a of acts) {
+      const n = a.weeks ?? 1;
+      const span = weeks.slice(i, i + n);
+      i += n;
+      if (!span.length) break;
+      periods.push({ session, semester: s.name, kind: a.kind, label: PERIOD_LABEL[a.kind] || 'Other', start: span[0].start, end: span[span.length - 1].end, weeks: span.length });
+    }
+    if (i !== weeks.length) warnings.push(`${s.name}: the activities add up to ${i} weeks but the calendar lists ${weeks.length} week rows. Check the periods below.`);
+  }
+  // dated notes: "Hari Deepavali/Deepavali 08.11.2026 (Ahad/Sunday)", "X 06.02.2027 [Sabtu] & 07.02.2027 [Ahad]", "X: 14.11.2026 [..] hingga/to 17.11.2026 [..]"
+  const notes = text.replace(/\n/g, ' ').replace(new RegExp(RANGE_RE.source, 'g'), ' ').replace(COUNT_RE, ' ')
+    .replace(ACTIVITY_RE, ' ').replace(/\bSEMESTER\s+\d\b/gi, ' ');
+  const events = [];
+  const EV = /((?:(?!\d{2}\.\d{2}\.\d{4})[^\[\]])*?)(\d{2})\.(\d{2})\.(\d{4})\s*(?:[\[(][^\])]*[\])])?(?:\s*(?:&|hingga\s*\/\s*to|to)\s*(\d{2})\.(\d{2})\.(\d{4})\s*(?:[\[(][^\])]*[\])])?)?/g;
+  for (const m of notes.matchAll(EV)) {
+    let name = m[1];
+    if (name.includes('*')) name = name.slice(name.lastIndexOf('*') + 1);
+    const words = name.trim().split(/\s+/);
+    while (words.length && (/^[^a-z]*$/.test(words[0]) && !/^[A-Z][a-z]/.test(words[0]))) words.shift(); // drop leftover ALL-CAPS headings
+    name = words.join(' ').replace(/[\s:,-]+$/, '').replace(/\s*\/\s*/g, ' / ').trim();
+    if (!name || name.length > 160) continue;
+    const start = isoDate(m[2], m[3], m[4]);
+    const end = m[5] ? isoDate(m[5], m[6], m[7]) : start;
+    events.push({ title: name, start, end: end < start ? start : end,
+      no_class: !/cadangan|konvokesyen|convocation|online|dalam talian|orientation|suai kenal|pendaftaran|registration|subject to change only/i.test(name) });
+  }
+  return { session, periods, events, warnings };
+}
+
+// Where a date falls in the academic calendar: { semester, kind, label, week (lecture week number), totalWeeks }
+export function academicStatus(periods, iso) {
+  const p = periods.find((x) => x.start_date <= iso && iso <= x.end_date);
+  if (!p) return null;
+  const lectures = periods.filter((x) => x.semester === p.semester && x.kind === 'lecture').sort((a, b) => a.start_date.localeCompare(b.start_date));
+  const totalWeeks = lectures.reduce((n, x) => n + Math.round((Date.parse(x.end_date) - Date.parse(x.start_date)) / 864e5 + 1) / 7, 0);
+  let week = null;
+  if (p.kind === 'lecture') {
+    week = 0;
+    for (const x of lectures) {
+      if (x.end_date < iso) week += Math.round((Date.parse(x.end_date) - Date.parse(x.start_date)) / 864e5 + 1) / 7;
+      else if (x.start_date <= iso) week += Math.floor((Date.parse(iso) - Date.parse(x.start_date)) / (7 * 864e5)) + 1;
+    }
+  }
+  return { semester: p.semester, kind: p.kind, label: p.label, week, totalWeeks };
+}
+export { addDays };

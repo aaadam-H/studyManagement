@@ -1,4 +1,4 @@
-import { parseSlipLines, parseTimetableDoc, prettyGroup } from './parsers.js';
+import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus } from './parsers.js';
 
 const CFG = window.STUDYHUB_CONFIG || {};
 const $app = document.getElementById('app');
@@ -78,6 +78,32 @@ async function getTimetable(uid = me.id, prof = me) {
     break_start: settings.break_start, break_end: settings.break_end, classes, courses, custom, main, groupOptions,
     myCourseCount: courses.length, totalClassesInDb: total };
 }
+// Academic calendar (periods + holidays) and the semester used for timetable exports
+async function getAcademic() {
+  const [periods, events, win] = await Promise.all([
+    q(sb.from('academic_periods').select('*').order('start_date')),
+    q(sb.from('academic_events').select('*').order('start_date')),
+    q(sb.rpc('teaching_window')),
+  ]);
+  const w = win[0] || {};
+  // what happens on a given date: holiday names, the period label, and whether classes run
+  const day = (iso) => {
+    const hol = events.filter((e) => e.start_date <= iso && iso <= e.end_date);
+    const st = periods.length ? academicStatus(periods, iso) : null;
+    const inTeaching = w.first_day ? w.first_day <= iso && iso <= w.last_day : true;
+    const classes = periods.length
+      ? !!st && st.kind === 'lecture' && !hol.some((e) => e.no_class)
+      : inTeaching && !hol.some((e) => e.no_class);
+    return { hol, st, classes };
+  };
+  return { periods, events, window: w, day };
+}
+const fmtDate = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+function statusText(st) {
+  if (!st) return '';
+  return st.kind === 'lecture' ? `${st.semester} · Lecture week ${st.week} of ${st.totalWeeks}` : `${st.semester} · ${st.label}`;
+}
+
 async function getBulletin() {
   const [posts, all, mine] = await Promise.all([
     q(sb.from('posts').select('*').order('created_at', { ascending: false }).limit(500)),
@@ -135,7 +161,7 @@ function authScreen(mode = 'login') {
 /* ---------------- shell ---------------- */
 const ROUTES = {
   '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
-  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile],
+  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile],
 };
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
@@ -161,15 +187,19 @@ sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; 
 /* ---------------- dashboard ---------------- */
 const clsHtml = (c) => `<div class="cls${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${[c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section)].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
 async function pgDashboard(m) {
-  const [tt, asg, bul] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*').order('due_date')), getBulletin()]);
+  const [tt, asg, bul, ac] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*').order('due_date')), getBulletin(), getAcademic()]);
   const dow = new Date().getDay() || 7, t = localISO();
-  const todays = tt.classes.filter((c) => c.day === dow);
+  const today = ac.day(t);
+  const todays = today.classes ? tt.classes.filter((c) => c.day === dow) : [];
+  const nextHol = ac.events.find((e) => e.end_date >= t && e.no_class);
   const pending = asg.filter((a) => !a.done);
   const overdue = pending.filter((a) => a.due_date && a.due_date < t);
   const upcoming = bul.posts.filter((p) => (!p.course_code || bul.mine.includes(p.course_code)) && p.due_date && p.due_date >= t).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 5);
-  m.innerHTML = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+  m.innerHTML = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
+  ${today.hol.length ? `<div class="card hol">${today.hol.map((e) => esc(e.title)).join(', ')}${today.classes ? '' : ' · no classes today'}</div>` : ''}
   <div class="grid"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
-  <div class="card"><h3>Today's classes</h3>${todays.length ? todays.map(clsHtml).join('') : '<p class="mute">No classes today.</p>'}</div>
+  <div class="card"><h3>Today's classes</h3>${todays.length ? todays.map(clsHtml).join('') : `<p class="mute">No classes today${today.st && today.st.kind !== 'lecture' ? ` (${esc(today.st.label.toLowerCase())})` : ''}.</p>`}
+  ${nextHol ? `<p class="mute">Next holiday: ${esc(nextHol.title)}, ${esc(fmtDate(nextHol.start_date))}</p>` : ''}</div>
   <div class="card"><h3>Upcoming deadlines from the bulletin</h3>${upcoming.length ? upcoming.map((p) => `<div class="post"><b>${esc(p.due_date)}</b> <span class="tag ${esc(p.kind)}">${esc(p.course_code || 'General')}</span> ${esc(p.title)}</div>`).join('') : '<p class="mute">Nothing due. <a href="#/bulletin">Open bulletin</a></p>'}</div>
   <div class="card"><h3>My pending assignments</h3>${pending.slice(0, 6).map((a) => `<div class="post"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${esc(a.due_date || '')}</span></div>`).join('') || '<p class="mute">All clear.</p>'}</div>
   ${tt.myCourseCount ? '' : '<div class="card">Start by uploading your registration slip in <a href="#/courses">My Courses</a>.</div>'}`;
@@ -193,7 +223,7 @@ function timetableHtml(tt) {
   ${weekHtml(tt)}`;
 }
 async function pgTimetable(m) {
-  const tt = await getTimetable();
+  const [tt, ac] = await Promise.all([getTimetable(), getAcademic()]);
   const noData = !tt.totalClassesInDb;
   const courseOpts = tt.courses.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('');
   m.innerHTML = `<h2>Timetable</h2><p class="sub">Built from your registered subjects and the university timetable. Mix-and-match groups are fine.</p>
@@ -221,7 +251,7 @@ async function pgTimetable(m) {
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
       <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
     ${tt.custom.length ? `<h4>Your added classes</h4><table>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${c.id}">Remove</button></td></tr>`).join('')}</table>` : ''}</div>
-  ${calendarCard(tt)}
+  ${calendarCard(tt, ac)}
   <h3>Your week</h3>${weekHtml(tt)}
   <p class="mute">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>`;
   const mg = document.getElementById('mg');
@@ -243,9 +273,12 @@ async function pgTimetable(m) {
 
 /* ---------------- calendar apps (.ics download + Google / Apple subscription) ---------------- */
 const feedUrl = () => `${CFG.SUPABASE_URL}/functions/v1/calendar-feed?token=${me.calendar_token}`;
-function calendarCard(tt) {
+function calendarCard(tt, ac) {
   const https = feedUrl(), webcal = https.replace(/^https:/, 'webcal:');
-  const range = tt.semester_start ? `${tt.semester_start} to ${tt.semester_end || '?'}${tt.break_start ? `, skipping the break ${tt.break_start} to ${tt.break_end}` : ''}` : 'this week plus 14 weeks (the admin has not set semester dates yet)';
+  const w = ac.window;
+  const range = w.from_calendar ? `${w.sem_label}: ${fmtDate(w.first_day)} to ${fmtDate(w.last_day)}, skipping breaks and public holidays from the academic calendar (which is also added)`
+    : tt.semester_start ? `${fmtDate(w.first_day)} to ${fmtDate(w.last_day)}${tt.break_start ? `, skipping the break ${tt.break_start} to ${tt.break_end}` : ''}`
+    : 'this week plus 14 weeks (the admin has not uploaded the academic calendar yet)';
   return `<div class="card"><h3>Add to your calendar app</h3>
   <p class="mute">Your classes repeat weekly: ${esc(range)}. Times are Malaysia time.</p>
   <div class="btns">
@@ -411,7 +444,7 @@ async function pgNotes(m) {
 /* ---------------- calendar ---------------- */
 let calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 async function pgCalendar(m) {
-  const [tt, asg, bul] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*')), getBulletin()]);
+  const [tt, asg, bul, ac] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*')), getBulletin(), getAcademic()]);
   const y = calMonth.getFullYear(), mo = calMonth.getMonth();
   const first = new Date(y, mo, 1), start = new Date(y, mo, 1 - first.getDay());
   const due = {};
@@ -420,14 +453,33 @@ async function pgCalendar(m) {
   let cells = '';
   for (let i = 0; i < 42; i++) {
     const d = new Date(start); d.setDate(start.getDate() + i);
-    const cls = tt.classes.filter((c) => c.day === (d.getDay() || 7));
-    cells += `<div class="d ${d.getMonth() !== mo ? 'off' : ''} ${localISO(d) === localISO() ? 'today' : ''}"><b>${d.getDate()}</b>${cls.map((c) => `<div class="e" title="${esc(c.start)}-${esc(c.end)} ${esc(c.course_code)} ${esc(c.course_name || '')} ${esc(c.venue || '')}"><b>${esc(c.start)}</b> ${esc(c.course_name || c.course_code)}${c.course_name ? ` <span class="mute">${esc(c.course_code)}</span>` : ''}</div>`).join('')}${(due[localISO(d)] || []).map((t) => `<div class="e" style="color:var(--warn)" title="${esc(t)}">${esc(t)}</div>`).join('')}</div>`;
+    const info = ac.day(localISO(d));
+    const cls = info.classes ? tt.classes.filter((c) => c.day === (d.getDay() || 7)) : [];
+    const tag = info.st && info.st.kind !== 'lecture' ? `<div class="e per" title="${esc(info.st.semester)}">${esc(info.st.label)}</div>` : '';
+    cells += `<div class="d ${d.getMonth() !== mo ? 'off' : ''} ${localISO(d) === localISO() ? 'today' : ''} ${info.st && info.st.kind !== 'lecture' ? 'brk' : ''}"><b>${d.getDate()}</b>${info.hol.map((e) => `<div class="e holi" title="${esc(e.title)}">${esc(e.title)}</div>`).join('')}${tag}${cls.map((c) => `<div class="e" title="${esc(c.start)}-${esc(c.end)} ${esc(c.course_code)} ${esc(c.course_name || '')} ${esc(c.venue || '')}"><b>${esc(c.start)}</b> ${esc(c.course_name || c.course_code)}${c.course_name ? ` <span class="mute">${esc(c.course_code)}</span>` : ''}</div>`).join('')}${(due[localISO(d)] || []).map((t) => `<div class="e" style="color:var(--warn)" title="${esc(t)}">${esc(t)}</div>`).join('')}</div>`;
   }
-  m.innerHTML = `<h2>Calendar</h2><p class="sub">Classes repeat weekly; deadlines come from your assignments and the bulletin.</p>
+  m.innerHTML = `<h2>Calendar</h2><p class="sub">Classes repeat weekly during lecture weeks; holidays and breaks come from the <a href="#/academic">academic calendar</a>; deadlines from your assignments and the bulletin.</p>
   <div class="row" style="align-items:center;margin-bottom:10px"><button class="ghost" id="pv">&lt;</button><b style="flex:2;text-align:center">${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b><button class="ghost" id="nx">&gt;</button><button class="ghost" id="td">Today</button></div>
   <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="h">${d}</div>`).join('')}${cells}</div>`;
   const go = (n) => () => { calMonth = n === 0 ? new Date(new Date().getFullYear(), new Date().getMonth(), 1) : new Date(y, mo + n, 1); render(); };
   document.getElementById('pv').onclick = go(-1); document.getElementById('nx').onclick = go(1); document.getElementById('td').onclick = go(0);
+}
+
+/* ---------------- academic calendar page ---------------- */
+async function pgAcademic(m) {
+  const ac = await getAcademic();
+  const t = localISO();
+  const st = ac.periods.length ? academicStatus(ac.periods, t) : null;
+  const sems = [...new Set(ac.periods.map((p) => p.semester))];
+  const weeksOf = (p) => Math.round((Date.parse(p.end_date) - Date.parse(p.start_date)) / 864e5 + 1) / 7;
+  m.innerHTML = `<h2>Academic Calendar</h2><p class="sub">Semester dates, breaks and public holidays from the university's academic calendar.</p>
+  ${!ac.periods.length && !ac.events.length ? `<div class="card">The academic calendar has not been uploaded yet. ${me.role === 'admin' ? '<a href="#/admin">Upload it in Admin</a>.' : 'Ask an admin to upload it.'}</div>` : ''}
+  ${st ? `<div class="card now"><b>Now:</b> ${esc(statusText(st))}</div>` : ''}
+  ${sems.map((sem) => `<div class="card"><h3>${esc(sem)}</h3><table><tr><th>Period</th><th>From</th><th>To</th><th>Weeks</th></tr>
+    ${ac.periods.filter((p) => p.semester === sem).map((p) => `<tr class="${p.start_date <= t && t <= p.end_date ? 'cur' : p.end_date < t ? 'past' : ''}"><td>${esc(p.label)}</td><td>${esc(fmtDate(p.start_date))}</td><td>${esc(fmtDate(p.end_date))}</td><td>${weeksOf(p)}</td></tr>`).join('')}</table></div>`).join('')}
+  ${ac.events.length ? `<div class="card"><h3>Holidays and events</h3><table><tr><th>Date</th><th>What</th><th></th></tr>
+    ${ac.events.map((e) => `<tr class="${e.end_date < t ? 'past' : ''}"><td>${esc(fmtDate(e.start_date))}${e.end_date !== e.start_date ? ' - ' + esc(fmtDate(e.end_date)) : ''}</td><td>${esc(e.title)}</td><td>${e.no_class ? '<span class="tag urgent">no classes</span>' : ''}</td></tr>`).join('')}</table></div>` : ''}
+  <p class="mute">The university's calendar is subject to change.</p>`;
 }
 
 /* ---------------- profile ---------------- */
@@ -467,13 +519,22 @@ async function loadTimetableHtml(html, progress = () => {}) {
 async function pgAdmin(m) {
   const sub = location.hash.split('/');
   if (sub[2] === 'user' && sub[3]) return pgAdminUser(m, sub[3]);
-  const [s, users, count] = await Promise.all([getSettings(), q(sb.rpc('admin_users')), sb.from('classes').select('id', { count: 'exact', head: true }).then((r) => r.count || 0)]);
+  const [s, users, acNow, count] = await Promise.all([getSettings(), q(sb.rpc('admin_users')), getAcademic(), sb.from('classes').select('id', { count: 'exact', head: true }).then((r) => r.count || 0)]);
   m.innerHTML = `<h2>Admin</h2><p class="sub">Manage the timetable source and users.</p>
   <div class="card"><h3>Timetable link</h3><p class="mute">Paste the university timetable page link, then sync. Every group on the page is loaded; each student picks their own group (and can mix and match) on the Timetable page. When a new semester's timetable comes out, paste the new link and sync again.</p>
   <form id="tl"><input name="timetable_url" type="url" value="${esc(s.timetable_url)}" required><div class="row" style="margin-top:8px"><button>Save link</button><button type="button" class="ghost" id="sync">Save &amp; sync now</button></div></form>
   <p class="mute">${count} class entries loaded${s.timetable_synced_at ? ' · last sync ' + esc(new Date(s.timetable_synced_at).toLocaleString()) : ''}</p>
   <form id="upl"><label>Or upload the saved timetable page (.html) if sync fails</label><div class="row"><input type="file" name="html" accept=".html,.htm,text/html" required><button class="ghost">Upload &amp; parse</button></div></form><div id="tm"></div></div>
-  <form class="card" id="sem"><h3>Semester dates</h3><p class="mute">Used when students add their timetable to Google / Apple Calendar: classes repeat weekly between these dates and skip the break.</p>
+  <div class="card"><h3>Academic calendar</h3>
+  <p class="mute">Upload the university's academic calendar PDF (Kalendar Akademik). It sets the lecture weeks, breaks and public holidays used by
+  the Calendar page and by students' Google / Apple Calendar exports. Upload the new one each academic year.</p>
+  <p>${acNow.periods.length ? `Loaded: ${[...new Set(acNow.periods.map((p) => p.semester))].map(esc).join(', ')} · ${acNow.events.length} holidays/events` : '<span class="mute">Nothing uploaded yet.</span>'}</p>
+  ${acNow.periods.length ? `<div class="row"><div><label>Semester used for timetable exports</label><select id="tsem">
+    <option value="">Automatic (the current or next semester${acNow.window.sem_label ? ': ' + esc(acNow.window.sem_label) : ''})</option>
+    ${[...new Set(acNow.periods.map((p) => p.semester))].map((x) => `<option ${s.teaching_semester === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div></div>` : ''}
+  <form id="acu"><label>Academic calendar PDF</label><div class="row"><input type="file" name="pdf" accept="application/pdf" required><button class="ghost">Read PDF</button></div></form>
+  <div id="acm"></div><div id="acp"></div></div>
+  <form class="card" id="sem"><h3>Manual semester dates</h3><p class="mute">Only used when no academic calendar is uploaded: classes repeat weekly between these dates and skip the break.</p>
   <div class="row"><div><label>Semester start</label><input type="date" name="semester_start" value="${esc(s.semester_start)}"></div><div><label>Semester end</label><input type="date" name="semester_end" value="${esc(s.semester_end)}"></div></div>
   <div class="row"><div><label>Mid-semester break start <span class="mute">(optional)</span></label><input type="date" name="break_start" value="${esc(s.break_start)}"></div><div><label>Break end <span class="mute">(optional)</span></label><input type="date" name="break_end" value="${esc(s.break_end)}"></div></div>
   <div id="semm"></div><p><button>Save dates</button></p></form>
@@ -502,6 +563,29 @@ async function pgAdmin(m) {
   document.getElementById('upl').onsubmit = async (e) => {
     e.preventDefault();
     try { flash(tm, await loadTimetableHtml(await e.target.html.files[0].text(), (t) => (tm.innerHTML = `<span class="mute">${esc(t)}</span>`)), 1); } catch (er) { flash(tm, er.message); }
+  };
+  const tsem = document.getElementById('tsem');
+  if (tsem) tsem.onchange = async () => { await q(sb.from('settings').upsert({ key: 'teaching_semester', value: tsem.value })); render(); };
+  document.getElementById('acu').onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById('acm'), pv = document.getElementById('acp');
+    msg.innerHTML = '<span class="mute">Reading...</span>';
+    try {
+      const r = parseAcademicCalendarLines(await pdfToLines(e.target.pdf.files[0]));
+      if (!r.periods.length) throw new Error('No semester weeks found. Is this the UniMAP academic calendar (Kalendar Akademik)?');
+      msg.innerHTML = r.warnings.map((w) => `<div class="err">${esc(w)}</div>`).join('');
+      pv.innerHTML = `<h4>Found: session ${esc(r.session)}</h4><table><tr><th>Semester</th><th>Period</th><th>From</th><th>To</th><th>Weeks</th></tr>
+        ${r.periods.map((p) => `<tr><td>${esc(p.semester)}</td><td>${esc(p.label)}</td><td>${esc(fmtDate(p.start))}</td><td>${esc(fmtDate(p.end))}</td><td>${p.weeks}</td></tr>`).join('')}</table>
+        <h4>Holidays and events</h4><p class="mute">Tick "No classes" for days when classes don't run (public holidays). Untick for info-only items.</p>
+        <table><tr><th>No classes</th><th>Date</th><th>What</th></tr>${r.events.map((ev, i) => `<tr><td><input type="checkbox" style="width:auto" data-ev="${i}" ${ev.no_class ? 'checked' : ''}></td><td>${esc(fmtDate(ev.start))}${ev.end !== ev.start ? ' - ' + esc(fmtDate(ev.end)) : ''}</td><td>${esc(ev.title)}</td></tr>`).join('')}</table>
+        <p class="mute">The short / additional semester is not imported.</p>
+        <p><button id="acs">Save academic calendar (replaces the current one)</button></p>`;
+      document.getElementById('acs').onclick = async () => {
+        pv.querySelectorAll('[data-ev]').forEach((c) => (r.events[c.dataset.ev].no_class = c.checked));
+        try { await q(sb.rpc('admin_save_academic_calendar', { periods: r.periods, events: r.events })); render(); }
+        catch (er) { flash(msg, er.message); }
+      };
+    } catch (er) { flash(msg, er.message); }
   };
   document.getElementById('sem').onsubmit = async (e) => {
     e.preventDefault();
