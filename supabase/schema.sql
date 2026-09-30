@@ -222,10 +222,28 @@ begin
   delete from auth.users where id = target;
 end $$;
 
+-- Admin: edit another user's details (student ID and role are not editable here)
+create or replace function public.admin_update_profile(target uuid, data jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'admin only'; end if;
+  if coalesce(trim(data->>'name'), '') = '' then raise exception 'name is required'; end if;
+  update profiles set
+    name = left(trim(data->>'name'), 120),
+    email = left(nullif(trim(data->>'email'), ''), 120),
+    phone = left(nullif(trim(data->>'phone'), ''), 30),
+    program = left(nullif(trim(data->>'program'), ''), 120),
+    faculty = left(nullif(trim(data->>'faculty'), ''), 120),
+    year = nullif(data->>'year', '')::int,
+    semester = left(nullif(trim(data->>'semester'), ''), 40)
+  where id = target;
+end $$;
+
 revoke execute on all functions in schema public from anon, public;
 grant execute on function public.is_admin(), public.is_enrolled(text), public.save_courses(jsonb, boolean),
   public.admin_replace_classes(jsonb), public.admin_users(), public.admin_set_role(uuid, text),
-  public.admin_reset_password(uuid, text), public.admin_delete_user(uuid) to authenticated;
+  public.admin_reset_password(uuid, text), public.admin_delete_user(uuid),
+  public.admin_update_profile(uuid, jsonb) to authenticated;
 
 -- ---------- make yourself admin (run once after you register, with your own student ID) ----------
 -- update public.profiles set role = 'admin' where student_id = '231021306';

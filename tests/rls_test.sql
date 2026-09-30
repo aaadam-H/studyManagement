@@ -29,6 +29,7 @@ select pg_temp.expect_fail($$insert into courses values ('ABC12345','x',1)$$, 's
 select pg_temp.expect_fail($$select admin_users()$$, 'student calling admin_users');
 select pg_temp.expect_fail($$select admin_replace_classes('[]')$$, 'student replacing classes');
 select pg_temp.expect_fail($$select admin_delete_user('00000000-0000-0000-0000-00000000000c')$$, 'student deleting user');
+select pg_temp.expect_fail($$select admin_update_profile('00000000-0000-0000-0000-00000000000c', '{"name":"x"}')$$, 'student editing another profile');
 update settings set value = 'hacked' where key = 'timetable_url';
 select pg_temp.expect((select value from settings where key='timetable_url') <> 'hacked', 'student cannot edit settings');
 insert into posts(course_code, kind, title, due_date) values ('IMJ41203', 'assignment', 'Report 1', '2026-10-20');
@@ -63,6 +64,10 @@ insert into posts(title) values ('Campus notice');
 select pg_temp.expect((select count(*) from posts where course_code is null) = 1, 'admin general post');
 select admin_reset_password('00000000-0000-0000-0000-00000000000c', 'newpassword1');
 select pg_temp.expect_fail($$select admin_set_role(auth.uid(), 'student')$$, 'admin demoting self');
+select admin_update_profile('00000000-0000-0000-0000-00000000000b', '{"name":"Adam H","phone":"0194145201","year":""}');
+select pg_temp.expect((select name || phone from profiles where student_id='231021306') = 'Adam H0194145201', 'admin edits a user profile');
+select pg_temp.expect((select count(*) from enrollments where user_id='00000000-0000-0000-0000-00000000000b') = 1, 'admin can see a user''s subjects');
+select pg_temp.expect_fail($$select admin_update_profile('00000000-0000-0000-0000-00000000000b', '{"name":""}')$$, 'admin blanking a name');
 select admin_set_role('00000000-0000-0000-0000-00000000000b', 'admin');
 select admin_delete_user('00000000-0000-0000-0000-00000000000c');
 delete from posts where author_sid = '231021306';
