@@ -1,30 +1,20 @@
 # StudyHub
 
-Multi-user study planner for UniMAP students.
+Multi-user study planner for UniMAP students. Static site on **GitHub Pages**, data and logins on **Supabase** (free).
 
-- **Accounts**: register with student ID (matric), name, programme, etc. Admin panel for user management.
-- **Registration slip**: upload the UniMAP course registration slip PDF; courses are read and saved.
-- **Timetable**: built from your courses + a university timetable page. The link is editable in Admin and can be re-synced any time (or upload the saved HTML).
-- **Bulletin**: shared board grouped by subject for assignments / exams / notices.
-- **Personal**: assignments, grades, notes, calendar, dashboard.
-- **Database**: SQLite (single file `data/studyhub.db`) - free, no server or signup.
+- **Accounts**: students register with student ID, name, contact and programme details; log in with student ID + password.
+- **Registration slip**: upload the UniMAP course registration slip PDF; it is read in the browser and your courses are saved.
+- **Timetable**: built from your courses + the university timetable page. Admins can change the link and re-sync, or upload the saved page.
+- **Bulletin**: shared board grouped by subject for assignments, exams and notices. Students post to subjects they're registered for; admins can post general notices.
+- **Personal**: dashboard, assignments, calendar, grades, notes (private to each user).
+- **Admin**: timetable source, user list, promote/demote, reset passwords, delete users.
 
-## Run
+**Setup:** follow [SETUP.md](SETUP.md).
 
-Requires Node 22.13+.
+## Layout
+- `web/`: the site (HTML/CSS/JS, no build step). `config.js` holds the Supabase URL + anon key.
+- `supabase/schema.sql`: tables, security rules (RLS) and admin functions. Paste into the Supabase SQL editor.
+- `supabase/functions/fetch-timetable/`: Edge Function that fetches the timetable page for admins.
+- `tests/`: parser tests (`npm install && npm test`) and database security tests (`tests/rls_test.sql`, run on Postgres after `tests/mock_auth.sql` + `supabase/schema.sql`).
 
-```sh
-npm install
-ADMIN_PASSWORD='choose-a-strong-password' npm start   # http://localhost:3000
-```
-
-The first start creates the admin account (`admin`; override with `ADMIN_USERNAME`). Without `ADMIN_PASSWORD` a random password is generated and printed once in the console.
-Env: `PORT`, `DATA_DIR` (where the DB lives), `NODE_ENV=production` (secure cookies, use behind HTTPS).
-
-`npm test` runs an end-to-end smoke test on a throwaway DB (set `SLIP_PDF=/path/to/slip.pdf` to include a real slip).
-
-## Notes
-
-- Back up by copying `data/studyhub.db`.
-- The timetable parser handles "days vertical" tables (rows = days, columns = time slots) and the transposed layout, and only the table named in the link's `#table_xxxx` if present. If the university changes its page format, adjust `server/timetable.js`.
-- The IC number on the slip is not stored.
+Run locally: `npm run serve`, then open the printed URL (needs `web/config.js` filled in).
