@@ -155,3 +155,39 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 .email-in .em-local{flex:2 1 0;min-width:80px}.email-in .em-domain{flex:3 1 0;min-width:120px;color:var(--mute)}.email-in .em-domain:focus{color:var(--ink)}
 .email-in .em-local{flex:1 1 0}.email-in .em-domain{flex:0 1 auto;width:calc(26ch + 22px);min-width:0;max-width:68%}
 @media(max-width:480px){.email-in{flex-wrap:wrap}.email-in .em-local{flex:1 1 100%}.email-in .em-domain{flex:1 1 0;width:auto;max-width:none}}
+
+/* buttons: one consistent look (height, alignment, hover/focus states) */
+button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;line-height:1.2;white-space:nowrap;font-weight:500;
+  transition:background-color .15s,border-color .15s,filter .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent}
+button:hover,.btn:hover{filter:brightness(1.08)}
+button:active,.btn:active{filter:brightness(.95)}
+button:focus-visible,.btn:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+button:disabled{opacity:.55;cursor:not-allowed;filter:none}
+button.ghost,.btn.ghost-link{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+button.ghost:hover,.btn.ghost-link:hover{filter:none;border-color:var(--brand);color:var(--brand)}
+button.danger{background:var(--bad);color:#fff}
+button.sm,.btn.sm{min-height:30px;padding:4px 10px;font-size:13px;border-radius:7px}
+.acts{display:flex;gap:6px;align-items:center;flex-wrap:nowrap}
+/* file pickers: styled "Choose file" button, full width, readable file name */
+input[type=file]{padding:5px;cursor:pointer;color:var(--mute);font-size:14px;text-overflow:ellipsis}
+input[type=file]::file-selector-button{font:inherit;font-weight:500;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 12px;margin-right:10px;cursor:pointer;transition:border-color .15s,color .15s}
+input[type=file]::file-selector-button:hover{border-color:var(--brand);color:var(--brand)}
+.row>input[type=file]{flex:1 1 220px}
+/* footer version line */
+footer .ver{margin-top:4px;color:var(--mute)}
+.ver-tag{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:99px;font-size:12px;font-variant-numeric:tabular-nums}
+.users-tbl .u-nm{font-weight:inherit}
+/* phones: each user becomes a small card with its buttons visible (no sideways scrolling) */
+@media(max-width:760px){
+  .users-tbl,.users-tbl tbody{display:block}
+  .users-tbl tr:first-child{display:none}
+  .users-tbl tr.qi{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .users-tbl tr.qi[hidden]{display:none}
+  .users-tbl td{display:block;border:0;padding:0;white-space:normal;word-break:break-word}
+  .users-tbl .u-id{grid-column:1/-1;font-size:13px;color:var(--mute)}
+  .users-tbl .u-name{grid-column:1/-1;margin-bottom:4px}.users-tbl .u-nm{font-weight:600}
+  .users-tbl td[data-l]::before{content:attr(data-l) ": ";color:var(--mute);font-size:13px}
+  .users-tbl td[data-l="Programme"]{grid-column:1/-1}
+  .users-tbl .u-acts{grid-column:1/-1;margin-top:8px}
+  .users-tbl .acts{flex-wrap:wrap}
+}
