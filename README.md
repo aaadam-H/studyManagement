@@ -5,6 +5,7 @@ A multi-user study planner for UniMAP students. It runs as a static site on **Gi
 ## Features
 
 - **Accounts**: students register with their student ID, name, contact and programme details, then log in with student ID + password.
+- **Guest read-only mode**: anyone can browse the shared timetable, bulletin and academic calendar without logging in. Personal data, uploads, editing and admin actions still require login.
 - **Registration slip import**: upload the UniMAP course registration slip PDF. It is parsed in the browser (pdf.js) and your courses are saved.
 - **Timetable**: built from your courses and the university timetable page (all groups). Pick a main group, switch groups per subject, or add classes by hand.
 - **Calendar export**: download an `.ics` file or subscribe with a live link in Google Calendar or Apple Calendar. Breaks and public holidays are skipped.
@@ -17,6 +18,7 @@ A multi-user study planner for UniMAP students. It runs as a static site on **Gi
 - **Search & filters**: long dropdowns (like subject lists) are type-to-search, and the bulletin, assignments, grades, notes, feedback and admin user lists have a search box and filters.
 - **Remember me**: stay logged in on your own device, or untick it on a shared computer.
 - **Onboarding**: a setup guide for new students, a Dashboard checklist and a Help page.
+- **Login demo video**: the login screen includes a short walkthrough of the registration-slip-to-timetable workflow.
 - **Feedback & reports**: students send feedback or bug reports and can report bulletin posts. Admins see a badge with the number of new items, then reply, resolve or remove posts.
 
 ## Tech stack
@@ -60,7 +62,7 @@ A multi-user study planner for UniMAP students. It runs as a static site on **Gi
 Full step-by-step instructions (about 20 minutes, no credit card) are in **[SETUP.md](SETUP.md)**. In short:
 
 1. Create a free Supabase project.
-2. Run `supabase/schema.sql` in the Supabase SQL Editor.
+2. Run `supabase/schema.sql` in the Supabase SQL Editor. Re-run it after upgrading to this guest read-only version so the public-safe RLS policies and RPCs are installed.
 3. Under Authentication → Email, turn off **Confirm email** (student IDs are mapped to internal addresses with no real inbox).
 4. Deploy the `fetch-timetable` and `calendar-feed` Edge Functions.
 5. Put your project URL and **anon / publishable** key in `web/config.js`.

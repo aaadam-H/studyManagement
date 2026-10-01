@@ -8,7 +8,7 @@ About 20 minutes. No credit card needed.
 
 ## 2. Create the database
 1. Left menu, **SQL Editor**, then **New query**.
-2. Open `supabase/schema.sql` from this repo, copy **all** of it, paste, then click **Run**. You should see "Success. No rows returned".
+2. Open `supabase/schema.sql` from this repo, copy **all** of it, paste, then click **Run**. You should see "Success. No rows returned". Re-run the full file when upgrading an existing StudyHub database so the guest read-only policies and safe public feed functions are installed.
 
 ## 3. Let students log in with their student ID
 Left menu, **Authentication**, then **Sign In / Providers** (or **Providers**), then **Email**:
@@ -49,7 +49,7 @@ If sync fails (university site unreachable from Supabase), open the timetable pa
 then use **Upload & parse** on the Admin tab. Each new semester: paste the new link and sync again.
 
 Students then open **Timetable**, pick their main group, change the group for any subject they take with another group
-(mix and match), and can add classes by hand for anything missing.
+(mix and match), and can add classes by hand for anything missing. Guests can browse the shared university timetable, bulletin and academic calendar without logging in, but all personal uploads, edits and admin actions remain login-gated.
 
 ## 9. Calendar apps (Google / Apple)
 1. Supabase, **Edge Functions**, **Deploy a new function**, **Via Editor**, name it exactly **`calendar-feed`**,
