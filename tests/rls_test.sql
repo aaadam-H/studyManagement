@@ -251,7 +251,7 @@ select pg_temp.expect((select count(*) from academic_events) = 3 and (select cou
 select pg_temp.expect_fail($$insert into academic_events(title, start_date, end_date) values ('x', current_date, current_date)$$, 'student adding a holiday directly');
 reset role;
 
--- anon (not logged in) can view shared read-only data, but not personal data or raw bulletin rows
+-- Guests can read shared data, but not personal data or raw bulletin rows.
 set role anon;
 select pg_temp.expect((select count(*) >= 1 from courses), 'anon can read course catalogue');
 select pg_temp.expect((select count(*) >= 1 from classes), 'anon can read university timetable');
@@ -260,7 +260,7 @@ select pg_temp.expect((select count(*) >= 1 from academic_events), 'anon can rea
 select pg_temp.expect((select count(*) >= 0 from public_bulletin()), 'anon can read safe public bulletin feed');
 select pg_temp.expect((select count(*) >= 0 from public_settings()), 'anon can read safe public settings feed');
 select pg_temp.expect((select count(*) >= 0 from teaching_window()), 'anon can read the public teaching window');
-select pg_temp.expect_fail($$select count(*) from posts$$, 'anon reading raw posts');
+select pg_temp.expect_fail($$select count(*) from posts$$, 'anon reading posts');
 select pg_temp.expect_fail($$select count(*) from profiles$$, 'anon reading profiles');
 select pg_temp.expect_fail($$select count(*) from enrollments$$, 'anon reading enrollments');
 select pg_temp.expect_fail($$select count(*) from assignments$$, 'anon reading assignments');

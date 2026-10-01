@@ -1,4 +1,4 @@
-import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js';
+import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.1';
 
 const CFG = window.STUDYHUB_CONFIG || {};
 const $app = document.getElementById('app');
@@ -8,11 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-<<<<<<< Updated upstream
-const APP_VERSION = '1.0.0';
-=======
-const APP_VERSION = '1.1.0';
->>>>>>> Stashed changes
+const APP_VERSION = '1.1.1';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -183,12 +179,12 @@ function authScreen(mode = 'login', opts = {}) {
     <p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>
   </form>
   ${reg ? '' : installHintHtml()}
-  ${reg ? '' : `<div class="card auth-video"><div class="video-head"><div><h3>See StudyHub in action</h3><p class="mute">Upload your registration slip once, then StudyHub builds your weekly timetable automatically.</p></div><span class="tag">Demo</span></div>
+  ${reg ? '' : `<section class="card auth-video" aria-labelledby="demo-title"><div class="video-head"><div><h3 id="demo-title">See StudyHub in action</h3><p class="mute">Upload your registration slip once, then StudyHub builds your weekly timetable automatically.</p></div><span class="tag">Demo</span></div>
     <video controls muted autoplay loop playsinline preload="metadata" poster="demo/studyhub-demo-poster.png" aria-label="StudyHub feature demo">
       <source src="demo/studyhub-demo.mp4" type="video/mp4">
       Your browser does not support video. <a href="demo/studyhub-demo.mp4">Open the demo video</a>.
     </video>
-    <div class="video-points"><span>1. Upload registration slip</span><span>2. Courses extracted</span><span>3. Timetable generated</span></div></div>`}
+    <div class="video-points"><span>1. Upload registration slip</span><span>2. Courses extracted</span><span>3. Timetable generated</span></div></section>`}
   ${reg ? '' : `<div class="card intro"><b>What you can do with StudyHub</b><ul>
     <li>Upload your course registration slip and get your weekly timetable automatically</li>
     <li>Mix and match groups, and add your own classes</li>
@@ -234,36 +230,34 @@ const ROUTES = {
 const PUBLIC_ROUTES = {
   '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], help: ['Help', pgHelp],
 };
-const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([k, v]) => [k, v[0]]));
+const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
   me = session ? await q(sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()) : null;
+  if (!me) return authScreen();
   render();
 }
 async function render() {
   let key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
   if (!me) {
-    const routes = PUBLIC_ROUTES;
-    if (!routes[key]) {
-      const title = PROTECTED_LABELS[key] || 'this page';
-      return authScreen('login', { reason: `Please log in to open ${title}. After login, you will return here.` });
+    if (!PUBLIC_ROUTES[key]) {
+      return authScreen('login', { reason: `Please log in to open ${PROTECTED_LABELS[key] || 'this page'}.` });
     }
-    const [, fn] = routes[key];
-    const pageTitle = routes[key][0];
+    const [pageTitle, fn] = PUBLIC_ROUTES[key];
     $app.innerHTML = `<div class="shell guest-shell"><nav id="nav">
       <div class="nav-top"><a class="brand" href="#/"><h1>StudyHub</h1><small>Personal Management</small></a>
         <span class="nav-page">${esc(pageTitle)}</span>
         <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu</button></div>
       <div class="nav-links" id="nav-links">
-        ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}</a>`).join('')}
+        ${Object.entries(PUBLIC_ROUTES).map(([route, [title]]) => `<a href="#/${route}" class="${route === key ? 'on' : ''}">${title}</a>`).join('')}
         <div class="who guest-who"><b>Guest mode</b><br><span>View only</span><br><a class="login-link" href="#/courses">Log in</a></div>
       </div></nav>
       <div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
-    const nav = document.getElementById('nav'), menuBtn = document.getElementById('menu-btn');
+    const nav = document.getElementById('nav');
+    const menuBtn = document.getElementById('menu-btn');
     const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
     menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
     document.getElementById('nav-links').addEventListener('click', (e) => { if (e.target.closest?.('a[href^="#/"]')) setMenu(false); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.classList.contains('open')) { setMenu(false); menuBtn.focus(); } });
     try { await fn(document.getElementById('main')); }
     catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
     return;
@@ -282,19 +276,11 @@ async function render() {
     ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}${k === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : k === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : ''}</a>`).join('')}
     <div class="who"><span class="who-name">${esc(me.name)}</span><br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo" class="logout">Log out</a></div></div></nav>
     <div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
-<<<<<<< Updated upstream
   document.getElementById('lo').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); me = null; authScreen(); };
   const nav = document.getElementById('nav'), menuBtn = document.getElementById('menu-btn');
   const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
   menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
   document.getElementById('nav-links').addEventListener('click', (e) => { if (e.target.closest('a[href^="#/"]')) setMenu(false); });
-=======
-  document.getElementById('lo').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); me = null; render(); };
-  const nav = document.getElementById('nav'), menuBtn = document.getElementById('menu-btn');
-  const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
-  menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
-  document.getElementById('nav-links').addEventListener('click', (e) => { if (e.target.closest?.('a[href^="#/"]')) setMenu(false); });
->>>>>>> Stashed changes
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.classList.contains('open')) { setMenu(false); menuBtn.focus(); } });
   if (key !== 'bulletin') bulletinNewSince = null;
   updateBadges();
@@ -302,7 +288,7 @@ async function render() {
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 window.addEventListener('hashchange', render);
-sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; location.hash = '#/'; render(); } });
+sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; authScreen(); } });
 
 /* ---------------- "add to home screen" hint ---------------- */
 // Android Chrome/Edge offer a one-tap install (beforeinstallprompt); iPhone and other browsers get written steps.
@@ -625,7 +611,7 @@ async function pgWelcome(m) {
       <tr><td><b>Profile</b></td><td>Your details and password.</td></tr>
       <tr><td><b>Feedback</b></td><td>Send suggestions, report a problem or a bulletin post. Admin replies show up there.</td></tr>
       <tr><td><b>Help</b></td><td>How-tos and answers to common questions. You can run this guide again from there.</td></tr>
-      ${me?.role === 'admin' ? '<tr><td><b>Admin</b></td><td>Load the timetable and academic calendar, manage users. The Dashboard shows an admin setup checklist.</td></tr>' : ''}</table>
+      ${me.role === 'admin' ? '<tr><td><b>Admin</b></td><td>Load the timetable and academic calendar, manage users. The Dashboard shows an admin setup checklist.</td></tr>' : ''}</table>
       <p>Need help? WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p></div>`;
   }
   m.innerHTML = head + body + nav();
@@ -707,62 +693,71 @@ async function getPublicData() {
     q(sb.from('courses').select('code,name,credit').order('code')),
     q(sb.from('classes').select('*').order('day').order('start_time').limit(1500)),
   ]);
-  const settings = Object.fromEntries(settingRows.map((r) => [r.key, r.value]));
-  const names = Object.fromEntries(courses.map((c) => [c.code, c.name]));
-  return { settings, courses, classes: classes.map((c) => ({ ...c, course_name: names[c.course_code] || '' })) };
+  const settings = Object.fromEntries(settingRows.map((row) => [row.key, row.value]));
+  const names = Object.fromEntries(courses.map((course) => [course.code, course.name]));
+  return { settings, courses, classes: classes.map((item) => ({ ...item, course_name: names[item.course_code] || '' })) };
+}
+async function getPublicImjTimetable() {
+  const [courses, classes] = await Promise.all([
+    q(sb.from('courses').select('code,name,credit').like('code', 'IMJ%').order('code')),
+    q(sb.from('classes').select('*').like('course_code', 'IMJ%').order('day').order('start_time')),
+  ]);
+  const names = Object.fromEntries(courses.map((course) => [course.code, course.name]));
+  return { courses, classes: classes.map((item) => ({ ...item, course_name: names[item.course_code] || '' })) };
 }
 async function getPublicBulletin() {
   const [posts, courses] = await Promise.all([
     q(sb.rpc('public_bulletin')),
     q(sb.from('courses').select('code,name').order('code')),
   ]);
-  const names = Object.fromEntries(courses.map((c) => [c.code, c.name]));
-  return { posts: posts.map((p) => ({ ...p, course_name: names[p.course_code] || '' })) };
+  const names = Object.fromEntries(courses.map((course) => [course.code, course.name]));
+  return { posts: posts.map((post) => ({ ...post, course_name: names[post.course_code] || '' })) };
 }
 async function pgPublicHome(m) {
-  const [data, b, ac] = await Promise.all([getPublicData(), getPublicBulletin(), getAcademic()]);
-  const synced = data.settings.timetable_synced_at ? new Date(data.settings.timetable_synced_at).toLocaleString() : 'Not synced yet';
-  const publicPosts = b.posts.length;
+  const [data, bulletin, academic] = await Promise.all([getPublicData(), getPublicBulletin(), getAcademic()]);
   m.innerHTML = `<div class="public-hero card"><div><span class="eyebrow">UniMAP study planner</span><h2>StudyHub keeps your timetable and study life in one place.</h2><p class="lead">Upload your course registration slip, let StudyHub match your subjects to the university timetable, then manage your week from one dashboard.</p>
     <div class="btns"><a class="btn" href="#/courses">Build my timetable</a><a class="btn ghost-link" href="#/timetable">View timetable</a></div></div>
     <div class="hero-note"><b>Guest mode</b><span>Read-only access is available without an account.</span><span>Login is requested only for personal or editing actions.</span></div></div>
-  <div class="grid public-stats"><div class="card stat"><b>${data.courses.length}</b><span>Subjects in catalogue</span></div><div class="card stat"><b>${data.classes.length}</b><span>Timetable entries loaded</span></div><div class="card stat"><b>${publicPosts}</b><span>Bulletin posts</span></div><div class="card stat"><b>${ac.periods.length}</b><span>Academic periods</span></div></div>
-  <div class="card"><h3>How it works</h3><div class="flow"><div><span>01</span><b>Upload registration slip</b><p class="mute">The PDF is read in your browser and the course list is extracted.</p></div><div><span>02</span><b>Match timetable groups</b><p class="mute">StudyHub compares your subjects with the loaded university timetable.</p></div><div><span>03</span><b>Get your weekly timetable</b><p class="mute">Your classes appear automatically, with group changes still available.</p></div></div></div>
-  <div class="card"><h3>Explore before you log in</h3><p class="sub">The public pages are view-only.</p><div class="feat"><div><b>Timetable</b><p class="mute">Browse the currently loaded university classes and groups.</p><a href="#/timetable">Open timetable →</a></div><div><b>Bulletin</b><p class="mute">Read shared subject announcements, assignments and notices.</p><a href="#/bulletin">Open bulletin →</a></div><div><b>Academic calendar</b><p class="mute">See semester periods, breaks and no-class dates.</p><a href="#/academic">Open calendar →</a></div></div><p class="mute">Timetable last synced: ${esc(synced)}.</p></div>`;
+  <div class="grid public-stats"><div class="card stat"><b>${data.courses.length}</b><span>Subjects in catalogue</span></div><div class="card stat"><b>${data.classes.length}</b><span>Timetable entries loaded</span></div><div class="card stat"><b>${bulletin.posts.length}</b><span>Bulletin posts</span></div><div class="card stat"><b>${academic.periods.length}</b><span>Academic periods</span></div></div>
+  <div class="card"><h3>Explore before you log in</h3><p class="sub">The public pages are view-only.</p><div class="feat"><div><b>Timetable</b><p class="mute">Browse the currently loaded university classes and groups.</p><a href="#/timetable">Open timetable</a></div><div><b>Bulletin</b><p class="mute">Read shared subject announcements, assignments and notices.</p><a href="#/bulletin">Open bulletin</a></div><div><b>Academic calendar</b><p class="mute">See semester periods, breaks and no-class dates.</p><a href="#/academic">Open calendar</a></div></div></div>`;
 }
-function publicClassHtml(c) {
-  return `<div class="cls public-cls k-${kindKey(c.kind)}" data-course="${esc(c.course_code)}" data-group="${esc(c.section || '')}" data-day="${c.day}" data-text="${esc([c.course_code, c.course_name, c.section, c.kind, c.venue, c.lecturer].filter(Boolean).join(' '))}"><div class="t">${esc(c.start_time)} - ${esc(c.end_time)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${[c.kind, c.venue, c.lecturer, c.section ? prettyGroup(c.section) : ''].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
+function publicClassHtml(item) {
+  return `<div class="cls public-cls k-${kindKey(item.kind)}" data-course="${esc(item.course_code)}" data-group="${esc(item.section || '')}" data-text="${esc([item.course_code, item.course_name, item.section, item.kind, item.venue, item.lecturer].filter(Boolean).join(' '))}"><div class="t">${esc(item.start_time)} - ${esc(item.end_time)}</div><div><b>${esc(item.course_code)}</b> ${esc(item.course_name || '')}<br><span class="mute">${[item.kind, item.venue, item.lecturer, item.section ? prettyGroup(item.section) : ''].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
 }
 async function pgPublicTimetable(m) {
-  const data = await getPublicData();
-  const groups = [...new Set(data.classes.map((c) => c.section).filter(Boolean))].sort();
-  const byDay = {}; for (const c of data.classes) (byDay[c.day] ||= []).push(c);
-  m.innerHTML = `<h2>Timetable</h2><p class="sub">Public, read-only preview of the university timetable currently loaded in StudyHub.</p>
-  <div class="card public-cta"><div><b>Want your own timetable?</b><p class="mute">Login and upload your registration slip. StudyHub will use your registered subjects to build your personal week.</p></div><a class="btn" href="#/courses">Login to build mine</a></div>
-  <div class="card"><div class="row public-filters"><div><label>Subject</label><select id="pt-course"><option value="">All subjects</option>${data.courses.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('')}</select></div><div><label>Group</label><select id="pt-group"><option value="">All groups</option>${groups.map((g) => `<option value="${esc(g)}">${esc(groupLabel(g))}</option>`).join('')}</select></div><div><label>Search</label><input id="pt-search" type="search" placeholder="Course, lecturer, venue..."></div></div></div>
-  ${data.classes.length ? `${KIND_LEGEND}${[1,2,3,4,5,6,7].map((d) => `<div class="card public-day" data-day-card="${d}"><h3>${DAYN[d]}</h3>${(byDay[d] || []).map(publicClassHtml).join('') || '<p class="mute">No classes.</p>'}</div>`).join('')}` : '<div class="card">The university timetable has not been loaded yet.</div>'}
-  <p class="mute">Source: ${esc(data.settings.timetable_url || '-')} ${data.settings.timetable_synced_at ? '· loaded ' + esc(new Date(data.settings.timetable_synced_at).toLocaleString()) : ''}</p>`;
+  const data = await getPublicImjTimetable();
+  const courses = data.courses;
+  const seen = new Set();
+  const classes = data.classes.filter((item) => item.section).filter((item) => {
+    const key = [item.course_code, item.section, item.day, item.start_time, item.end_time, item.kind].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const groupCounts = classes.reduce((counts, item) => ({ ...counts, [item.section]: (counts[item.section] || 0) + 1 }), {});
+  const groups = Object.keys(groupCounts).sort((a, b) => groupCounts[b] - groupCounts[a] || a.localeCompare(b));
+  const selectedGroup = groups[0] || '';
+  const byDay = {}; for (const item of classes) (byDay[item.day] ||= []).push(item);
+  m.innerHTML = `<h2>IMJ Timetable</h2><p class="sub">Read-only weekly schedule for one IMJ cohort at a time. It does not combine classes from different groups.</p>
+  <div class="card public-cta"><div><b>Want your own timetable?</b><p class="mute">Log in and upload your registration slip. StudyHub will use your registered subjects to build your personal week.</p></div><a class="btn" href="#/courses">Log in to build mine</a></div>
+  <div class="card"><div class="row public-filters"><div><label>IMJ subject</label><select id="pt-course" data-plain><option value="">All IMJ subjects</option>${courses.map((course) => `<option value="${esc(course.code)}">${esc(course.code)} - ${esc(course.name || '')}</option>`).join('')}</select></div><div><label>Programme group</label><select id="pt-group" data-plain>${groups.map((group) => `<option value="${esc(group)}" ${group === selectedGroup ? 'selected' : ''}>${esc(groupLabel(group))} - ${groupCounts[group]} classes</option>`).join('')}</select></div><div><label>Search</label><input id="pt-search" type="search" placeholder="Course, lecturer, venue..."></div></div></div>
+  ${classes.length ? `${KIND_LEGEND}${[1, 2, 3, 4, 5, 6, 7].map((day) => `<div class="card public-day" data-day-card="${day}"><h3>${DAYN[day]}</h3>${(byDay[day] || []).sort((a, b) => a.start_time.localeCompare(b.start_time)).map(publicClassHtml).join('') || '<p class="mute">No classes.</p>'}</div>`).join('')}` : '<div class="card">No IMJ timetable entries have been loaded yet.</div>'}`;
   const apply = () => {
     const course = document.getElementById('pt-course').value, group = document.getElementById('pt-group').value, term = document.getElementById('pt-search').value.trim().toLowerCase();
-    m.querySelectorAll('.public-cls').forEach((el) => { const ok = (!course || el.dataset.course === course) && (!group || el.dataset.group === group) && (!term || el.dataset.text.toLowerCase().includes(term)); el.hidden = !ok; });
-    m.querySelectorAll('[data-day-card]').forEach((card) => { card.hidden = ![...card.querySelectorAll('.public-cls')].some((x) => !x.hidden); });
+    m.querySelectorAll('.public-cls').forEach((element) => { element.hidden = (!!course && element.dataset.course !== course) || (!!group && element.dataset.group !== group) || (!!term && !element.dataset.text.toLowerCase().includes(term)); });
+    m.querySelectorAll('[data-day-card]').forEach((card) => { card.hidden = ![...card.querySelectorAll('.public-cls')].some((element) => !element.hidden); });
   };
-  ['pt-course','pt-group','pt-search'].forEach((id) => document.getElementById(id).addEventListener(id === 'pt-search' ? 'input' : 'change', apply));
+  ['pt-course', 'pt-group', 'pt-search'].forEach((id) => document.getElementById(id).addEventListener(id === 'pt-search' ? 'input' : 'change', apply));
+  apply();
 }
 async function pgPublicBulletin(m) {
-  const b = await getPublicBulletin();
-  const groups = {}; for (const p of b.posts) (groups[p.course_code || '~general'] ||= []).push(p);
-  const list = (p) => `<div class="post public-post qi" data-kind="${esc(p.kind)}" data-search="${esc([p.course_code, p.course_name, p.title, p.body, p.kind].filter(Boolean).join(' '))}"><h4><span class="tag ${esc(p.kind)}">${esc(p.kind)}</span> ${esc(p.title)} ${p.due_date ? `<span class="tag">due ${esc(p.due_date)}</span>` : ''}</h4>${p.body ? `<p>${esc(p.body)}</p>` : ''}<span class="mute">${esc(p.author_name || 'StudyHub student')} · ${esc(new Date(p.created_at).toLocaleString())}</span></div>`;
+  const bulletin = await getPublicBulletin();
+  const groups = {}; for (const post of bulletin.posts) (groups[post.course_code || '~general'] ||= []).push(post);
+  const postHtml = (post) => `<div class="post public-post qi" data-kind="${esc(post.kind)}"><h4><span class="tag ${esc(post.kind)}">${esc(post.kind)}</span> ${esc(post.title)} ${post.due_date ? `<span class="tag">due ${esc(post.due_date)}</span>` : ''}</h4>${post.body ? `<p>${esc(post.body)}</p>` : ''}<span class="mute">${esc(post.author_name || 'StudyHub student')} · ${esc(new Date(post.created_at).toLocaleString())}</span></div>`;
   m.innerHTML = `<h2>Bulletin</h2><p class="sub">Shared, read-only board for assignments, exams and notices.</p>
-  <div class="card public-cta"><div><b>Need to post or report something?</b><p class="mute">Login is required for bulletin actions.</p></div><a class="btn" href="#/feedback">Login for bulletin actions</a></div>
+  <div class="card public-cta"><div><b>Need to post or report something?</b><p class="mute">Log in is required for bulletin actions.</p></div><a class="btn" href="#/feedback">Log in for bulletin actions</a></div>
   ${filterBar('Search posts, subjects and notices...', qSelect('kind', [['', 'All types'], ['info', 'Info'], ['assignment', 'Assignments'], ['exam', 'Exams / tests'], ['urgent', 'Urgent'], ['update', 'Updates']]))}
-  ${Object.keys(groups).sort((a,b) => (a === '~general') - (b === '~general') || a.localeCompare(b)).map((code) => `<div class="card public-bgroup"><h3>${code === '~general' ? 'General' : `${esc(code)} <span class="mute">${esc(groups[code][0].course_name || '')}</span>`}</h3>${groups[code].map(list).join('')}</div>`).join('') || '<div class="card mute">No bulletin posts yet.</div>'}`;
-  const apply = () => {
-    const term = m.querySelector('.qbar input[data-qf=""]')?.value.trim().toLowerCase() || '', kind = m.querySelector('select[data-qf="kind"]')?.value || '';
-    m.querySelectorAll('.public-post').forEach((el) => { el.hidden = (!!kind && el.dataset.kind !== kind) || (!!term && !el.dataset.search.toLowerCase().includes(term)); });
-    m.querySelectorAll('.public-bgroup').forEach((g) => { g.hidden = ![...g.querySelectorAll('.public-post')].some((x) => !x.hidden); });
-  };
-  m.querySelectorAll('[data-qf]').forEach((el) => el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', apply));
+  ${Object.keys(groups).sort((a, b) => (a === '~general') - (b === '~general') || a.localeCompare(b)).map((code) => `<div class="card public-bgroup qg"><h3>${code === '~general' ? 'General' : `${esc(code)} <span class="mute">${esc(groups[code][0].course_name || '')}</span>`}</h3>${groups[code].map(postHtml).join('')}</div>`).join('') || '<div class="card mute">No bulletin posts yet.</div>'}`;
 }
 
 /* ---------------- timetable ---------------- */

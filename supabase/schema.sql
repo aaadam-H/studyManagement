@@ -325,7 +325,7 @@ drop policy if exists own_notes on public.notes;
 create policy own_notes on public.notes for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 revoke all on all tables in schema public from anon;
--- Public read-only pages: only shared, non-personal tables are readable without login.
+-- Guest mode can read shared university data only. Personal and raw bulletin data stay private.
 grant select on public.courses, public.classes, public.academic_periods, public.academic_events to anon;
 
 -- ---------- functions the app calls ----------
@@ -620,19 +620,16 @@ begin
   return t;
 end $$;
 
--- Public settings feed: expose only keys needed by the public read-only pages.
+-- Public feeds expose only the shared fields required by guest mode.
 create or replace function public.public_settings()
 returns table (key text, value text)
 language sql stable security definer set search_path = public as $$
   select s.key, s.value
   from public.settings s
-  where s.key in ('timetable_url','timetable_synced_at','semester_start','semester_end','break_start','break_end','teaching_semester')
+  where s.key in ('timetable_url', 'timetable_synced_at', 'semester_start', 'semester_end', 'break_start', 'break_end', 'teaching_semester')
   order by s.key
 $$;
 
-
--- Public bulletin feed: expose only fields needed by the public read-only board.
--- Student identity is intentionally masked outside the authenticated app.
 create or replace function public.public_bulletin()
 returns table (id bigint, course_code text, kind text, title text, body text, due_date date, created_at timestamptz, author_name text)
 language sql stable security definer set search_path = public as $$
@@ -674,10 +671,8 @@ grant execute on function public.is_admin(), public.is_enrolled(text), public.sa
   public.admin_update_profile(uuid, jsonb), public.my_timetable(uuid), public.my_calendar_ics(),
   public.reset_calendar_token(), public.mark_bulletin_seen(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb),
   public.admin_update_feedback(bigint, text, text), public.admin_mark_feedback_read(bigint[]) to authenticated;
-grant execute on function public.public_bulletin() to anon, authenticated;
-grant execute on function public.public_settings() to anon, authenticated;
+grant execute on function public.public_bulletin(), public.public_settings(), public.teaching_window() to anon, authenticated;
 grant execute on function public.calendar_feed(uuid) to anon, authenticated;
-grant execute on function public.teaching_window() to anon, authenticated;
 
 -- ---------- make yourself admin (run once after you register, with your own student ID) ----------
 -- update public.profiles set role = 'admin' where student_id = 'YOUR_STUDENT_ID';
