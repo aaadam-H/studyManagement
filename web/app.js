@@ -229,10 +229,22 @@ async function render() {
   if (needsOnboarding() && !['welcome', 'help', 'feedback'].includes(key)) { history.replaceState(null, '', '#/welcome'); key = 'welcome'; }
   const routes = { ...ROUTES, ...(me.role === 'admin' ? { admin: ['Admin', pgAdmin] } : {}) };
   const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
-  $app.innerHTML = `<div class="shell"><nav><h1>StudyHub</h1><small>Personal Management</small>
+  const pageTitle = key === 'welcome' ? 'Getting started' : (routes[key] || routes[''])[0];
+  // On phones the menu collapses behind a Menu button in a top bar (always closed after navigating)
+  $app.innerHTML = `<div class="shell"><nav id="nav">
+    <div class="nav-top"><a class="brand" href="#/"><h1>StudyHub</h1><small>Personal Management</small></a>
+      <span class="nav-page">${esc(pageTitle)}</span>
+      <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu<span class="menu-dot" id="menu-dot" hidden></span></button></div>
+    <div class="nav-links" id="nav-links">
     ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}${k === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : k === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : ''}</a>`).join('')}
-    <div class="who">${esc(me.name)}<br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo">Log out</a></div></nav><div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
+    <div class="who"><span class="who-name">${esc(me.name)}</span><br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo" class="logout">Log out</a></div></div></nav>
+    <div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
   document.getElementById('lo').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); me = null; authScreen(); };
+  const nav = document.getElementById('nav'), menuBtn = document.getElementById('menu-btn');
+  const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
+  menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
+  document.getElementById('nav-links').addEventListener('click', (e) => { if (e.target.closest('a[href^="#/"]')) setMenu(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.classList.contains('open')) { setMenu(false); menuBtn.focus(); } });
   if (key !== 'bulletin') bulletinNewSince = null;
   updateBadges();
   try { await fn(document.getElementById('main')); }
@@ -394,6 +406,7 @@ async function updateFeedbackBadge() {
     el.title = me.role === 'admin' ? `${count} new feedback / reports` : `${count} new repl${count === 1 ? 'y' : 'ies'}`;
     document.title = count && me.role === 'admin' ? `(${count}) StudyHub` : 'StudyHub';
   } catch { el.hidden = true; }
+  syncMenuDot();
 }
 // New bulletin posts since the student last opened the Bulletin: their subjects + general notices, minus muted subjects and their own posts
 async function updateBulletinBadge() {
@@ -410,8 +423,13 @@ async function updateBulletinBadge() {
     el.textContent = count > 99 ? '99+' : String(count || '');
     el.title = `${count} new post${count === 1 ? '' : 's'}`;
   } catch { el.hidden = true; }
+  syncMenuDot();
 }
-const updateBadges = () => { updateFeedbackBadge(); updateBulletinBadge(); };
+function syncMenuDot() {
+  const dot = document.getElementById('menu-dot');
+  if (dot) dot.hidden = ![...document.querySelectorAll('.nav-links .badge')].some((b) => !b.hidden);
+}
+const updateBadges = () => Promise.allSettled([updateFeedbackBadge(), updateBulletinBadge()]).then(syncMenuDot);
 setInterval(() => { if (document.visibilityState === 'visible') updateBadges(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateBadges(); });
 

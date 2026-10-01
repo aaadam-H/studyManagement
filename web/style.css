@@ -33,7 +33,38 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;
 .cal .d{min-height:78px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:4px;font-size:12px;overflow:hidden}
 .cal .d.today{border-color:var(--brand)}.cal .d.off{opacity:.45}.cal .e{background:var(--bg);border-radius:4px;padding:1px 4px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .auth{max-width:420px;margin:6vh auto;padding:0 16px}
-@media(max-width:760px){.shell{flex-direction:column}nav{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}nav h1,nav small,nav .who{display:none}main{padding:14px}}
+/* menu: sidebar on wide screens, collapsible top bar on phones */
+.nav-top{display:contents}
+.brand{text-decoration:none;color:var(--ink)}.nav-page,.menu-btn{display:none}
+.nav-links{display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow-y:auto}
+.who .logout{display:inline-block;margin-top:4px}
+@media(max-width:760px){
+  .shell{flex-direction:column}
+  nav{width:auto;height:auto;padding:0;border-right:0;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20;display:block}
+  .nav-top{display:flex;align-items:center;gap:10px;padding:8px 12px 8px 16px}
+  .brand h1{font-size:18px;margin:0}.brand small{display:none}
+  .nav-page{display:block;flex:1;min-width:0;color:var(--mute);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .menu-btn{display:inline-flex;align-items:center;gap:8px;position:relative;background:transparent;color:var(--ink);border:1px solid var(--line);padding:7px 12px}
+  .burger,.burger::before,.burger::after{display:block;width:16px;height:2px;background:currentColor;border-radius:2px;position:relative;transition:transform .15s}
+  .burger::before,.burger::after{content:"";position:absolute;left:0}.burger::before{top:-5px}.burger::after{top:5px}
+  nav.open .burger{background:transparent}nav.open .burger::before{transform:translateY(5px) rotate(45deg)}nav.open .burger::after{transform:translateY(-5px) rotate(-45deg)}
+  .menu-dot{position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--bad);border:2px solid var(--card)}
+  .menu-dot[hidden]{display:none}
+  .nav-links{display:none;padding:4px 12px 12px;max-height:calc(100vh - 56px);max-height:calc(100dvh - 56px);border-top:1px solid var(--line)}
+  nav.open .nav-links{display:flex}
+  .nav-links a{padding:11px 12px}
+  .who{display:block;margin-top:8px;border-top:1px solid var(--line);padding:12px}
+  .who .logout{display:inline-block;margin-top:8px;padding:8px 14px;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--bad)}
+  main{padding:14px}
+}
+@media(prefers-reduced-motion:reduce){.burger,.burger::before,.burger::after{transition:none}}
+/* never let wide content widen the page on phones: tables scroll inside their card, inputs can shrink */
+html,body{max-width:100%;overflow-x:hidden}
+.card{max-width:100%;overflow-x:auto}
+.content{max-width:100%}
+input,select,textarea{min-width:0;max-width:100%}
+input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;min-height:40px;display:block}
+@media(max-width:760px){.row>*{min-width:120px}table th,table td{white-space:normal}}
 .content{flex:1;min-width:0;display:flex;flex-direction:column}
 .content main{flex:1}
 footer{border-top:1px solid var(--line);padding:14px 24px;font-size:13px;color:var(--mute);text-align:center}
