@@ -253,14 +253,14 @@ create policy settings_read on public.settings for select to authenticated using
 drop policy if exists settings_admin on public.settings;
 create policy settings_admin on public.settings for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists courses_read on public.courses;
-create policy courses_read on public.courses for select to authenticated using (true);
+create policy courses_read on public.courses for select to anon, authenticated using (true);
 drop policy if exists classes_read on public.classes;
-create policy classes_read on public.classes for select to authenticated using (true);
+create policy classes_read on public.classes for select to anon, authenticated using (true);
 revoke insert, update, delete on public.courses, public.classes from anon, authenticated;
 drop policy if exists periods_read on public.academic_periods;
-create policy periods_read on public.academic_periods for select to authenticated using (true);
+create policy periods_read on public.academic_periods for select to anon, authenticated using (true);
 drop policy if exists events_read on public.academic_events;
-create policy events_read on public.academic_events for select to authenticated using (true);
+create policy events_read on public.academic_events for select to anon, authenticated using (true);
 revoke insert, update, delete on public.academic_periods, public.academic_events from anon, authenticated;
 -- feedback: students see their own, admins see all; students may only fill in the message fields
 -- and mark a reply as seen; status and replies change only through the admin functions below
@@ -325,6 +325,8 @@ drop policy if exists own_notes on public.notes;
 create policy own_notes on public.notes for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 revoke all on all tables in schema public from anon;
+-- Public read-only pages: only shared, non-personal tables are readable without login.
+grant select on public.courses, public.classes, public.academic_periods, public.academic_events to anon;
 
 -- ---------- functions the app calls ----------
 -- Save courses (from the slip or added by hand). replace=true swaps the whole list.
@@ -618,6 +620,29 @@ begin
   return t;
 end $$;
 
+-- Public settings feed: expose only keys needed by the public read-only pages.
+create or replace function public.public_settings()
+returns table (key text, value text)
+language sql stable security definer set search_path = public as $$
+  select s.key, s.value
+  from public.settings s
+  where s.key in ('timetable_url','timetable_synced_at','semester_start','semester_end','break_start','break_end','teaching_semester')
+  order by s.key
+$$;
+
+
+-- Public bulletin feed: expose only fields needed by the public read-only board.
+-- Student identity is intentionally masked outside the authenticated app.
+create or replace function public.public_bulletin()
+returns table (id bigint, course_code text, kind text, title text, body text, due_date date, created_at timestamptz, author_name text)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.course_code, p.kind, p.title, p.body, p.due_date, p.created_at,
+    case when p.kind = 'update' then 'ADMIN' else 'StudyHub student' end as author_name
+  from public.posts p
+  order by p.created_at desc
+  limit 500
+$$;
+
 -- Supabase grants EXECUTE on new functions to anon and authenticated by default; take it all back,
 -- then allow only the functions the app calls (internal helpers like build_ics stay private)
 -- Admin: reply to / change the status of a feedback item (a new reply shows as unread to the student)
@@ -649,7 +674,10 @@ grant execute on function public.is_admin(), public.is_enrolled(text), public.sa
   public.admin_update_profile(uuid, jsonb), public.my_timetable(uuid), public.my_calendar_ics(),
   public.reset_calendar_token(), public.mark_bulletin_seen(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb),
   public.admin_update_feedback(bigint, text, text), public.admin_mark_feedback_read(bigint[]) to authenticated;
+grant execute on function public.public_bulletin() to anon, authenticated;
+grant execute on function public.public_settings() to anon, authenticated;
 grant execute on function public.calendar_feed(uuid) to anon, authenticated;
+grant execute on function public.teaching_window() to anon, authenticated;
 
 -- ---------- make yourself admin (run once after you register, with your own student ID) ----------
 -- update public.profiles set role = 'admin' where student_id = 'YOUR_STUDENT_ID';

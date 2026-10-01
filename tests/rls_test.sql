@@ -251,8 +251,23 @@ select pg_temp.expect((select count(*) from academic_events) = 3 and (select cou
 select pg_temp.expect_fail($$insert into academic_events(title, start_date, end_date) values ('x', current_date, current_date)$$, 'student adding a holiday directly');
 reset role;
 
--- anon (not logged in) sees nothing
+-- anon (not logged in) can view shared read-only data, but not personal data or raw bulletin rows
 set role anon;
-select pg_temp.expect_fail($$select count(*) from posts$$, 'anon reading posts');
+select pg_temp.expect((select count(*) >= 1 from courses), 'anon can read course catalogue');
+select pg_temp.expect((select count(*) >= 1 from classes), 'anon can read university timetable');
+select pg_temp.expect((select count(*) >= 1 from academic_periods), 'anon can read academic periods');
+select pg_temp.expect((select count(*) >= 1 from academic_events), 'anon can read academic events');
+select pg_temp.expect((select count(*) >= 0 from public_bulletin()), 'anon can read safe public bulletin feed');
+select pg_temp.expect((select count(*) >= 0 from public_settings()), 'anon can read safe public settings feed');
+select pg_temp.expect((select count(*) >= 0 from teaching_window()), 'anon can read the public teaching window');
+select pg_temp.expect_fail($$select count(*) from posts$$, 'anon reading raw posts');
+select pg_temp.expect_fail($$select count(*) from profiles$$, 'anon reading profiles');
+select pg_temp.expect_fail($$select count(*) from enrollments$$, 'anon reading enrollments');
+select pg_temp.expect_fail($$select count(*) from assignments$$, 'anon reading assignments');
+select pg_temp.expect_fail($$select count(*) from grades$$, 'anon reading grades');
+select pg_temp.expect_fail($$select count(*) from notes$$, 'anon reading notes');
+select pg_temp.expect_fail($$select count(*) from my_classes$$, 'anon reading personal classes');
+select pg_temp.expect_fail($$select count(*) from feedback$$, 'anon reading feedback');
+select pg_temp.expect_fail($$select count(*) from exam_slips$$, 'anon reading exam slips');
 reset role;
 \echo ALL RLS TESTS PASSED

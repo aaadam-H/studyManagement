@@ -1,6 +1,10 @@
 {
   "name": "studyhub",
+<<<<<<< Updated upstream
   "version": "1.0.0",
+=======
+  "version": "1.1.0",
+>>>>>>> Stashed changes
   "private": true,
   "type": "module",
   "description": "Dev-only: tests for the StudyHub parsers. The app itself is static files in web/ plus Supabase.",
