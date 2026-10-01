@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.8';
+const APP_VERSION = '1.1.9';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -264,7 +264,9 @@ async function render() {
   }
   // first visit: send new students through the setup guide (they can still open Help)
   if (needsOnboarding() && !['welcome', 'help', 'feedback'].includes(key)) { history.replaceState(null, '', '#/welcome'); key = 'welcome'; }
-  const routes = { ...ROUTES, ...(me.role === 'admin' ? { admin: ['Admin', pgAdmin] } : {}) };
+  const routes = { ...ROUTES, ...(me.role === 'admin' ? {
+    admin: ['Admin', pgAdmin], 'admin-subjects': ['Subject Search', pgAdminSubjects], 'admin-registrations': ['Student Registrations', pgAdminRegistrations],
+  } : {}) };
   const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
   const pageTitle = key === 'welcome' ? 'Getting started' : (routes[key] || routes[''])[0];
   // On phones the menu collapses behind a Menu button in a top bar (always closed after navigating)
@@ -1295,6 +1297,49 @@ async function pgAdmin(m) {
     catch (er) { flash(document.getElementById('semm'), er.message); }
   };
   wireUserActions(m);
+}
+async function loadAdminRows(table, columns, order) {
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    let query = sb.from(table).select(columns);
+    for (const column of order) query = query.order(column);
+    const batch = await q(query.range(from, from + pageSize - 1));
+    rows.push(...batch);
+    if (batch.length < pageSize) return rows;
+  }
+}
+async function pgAdminSubjects(m) {
+  const classes = await loadAdminRows('classes', '*', ['id']);
+  const courses = await q(sb.from('courses').select('code,name').order('code'));
+  const names = Object.fromEntries(courses.map((course) => [course.code, course.name]));
+  const entries = classes.map((item) => ({ ...item, course_name: names[item.course_code] || '' }))
+    .sort((a, b) => a.course_code.localeCompare(b.course_code) || a.day - b.day || a.start_time.localeCompare(b.start_time));
+  m.innerHTML = `<h2>Subject Search</h2><p class="sub">Search all classes in the timetable uploaded by the admin.</p>
+    <div class="card"><h3>Imported timetable (${entries.length} class entries)</h3>${filterBar('Search code, subject, group, day, lecturer, venue, or class type')}
+    <div class="table-scroll"><table class="admin-data-tbl"><thead><tr><th>Code</th><th>Subject</th><th>Group</th><th>Day</th><th>Time</th><th>Type</th><th>Venue</th><th>Lecturer</th></tr></thead><tbody>
+    ${entries.map((item) => `<tr class="qi"><td><b>${esc(item.course_code)}</b></td><td>${esc(item.course_name)}</td><td>${esc(item.section || '')}</td><td>${esc(DAYN[item.day] || '')}</td><td>${esc(item.start_time)}–${esc(item.end_time)}</td><td>${esc(item.kind || '')}</td><td>${esc(item.venue || '')}</td><td>${esc(item.lecturer || '')}</td></tr>`).join('') || '<tr><td colspan="8" class="mute">No timetable classes have been uploaded.</td></tr>'}
+    </tbody></table></div></div>`;
+}
+async function pgAdminRegistrations(m) {
+  const [users, registrations] = await Promise.all([
+    q(sb.rpc('admin_users')),
+    loadAdminRows('enrollments', 'user_id,course_code,grp,section,courses(name,credit)', ['user_id', 'course_code']),
+  ]);
+  const byUser = new Map();
+  for (const registration of registrations) {
+    if (!byUser.has(registration.user_id)) byUser.set(registration.user_id, []);
+    byUser.get(registration.user_id).push(registration);
+  }
+  const rows = users.flatMap((user) => {
+    const subjects = byUser.get(user.id) || [];
+    return subjects.length ? subjects.map((subject) => ({ user, subject })) : [{ user, subject: null }];
+  });
+  m.innerHTML = `<h2>Student Registrations</h2><p class="sub">See which subjects each account has registered in StudyHub.</p>
+    <div class="card"><h3>Registrations (${registrations.length} subjects across ${users.length} accounts)</h3>${filterBar('Search student ID, name, programme, subject, or group')}
+    <div class="table-scroll"><table class="admin-data-tbl"><thead><tr><th>Student ID</th><th>Name</th><th>Programme</th><th>Subject</th><th>Group</th><th>Section</th><th></th></tr></thead><tbody>
+    ${rows.map(({ user, subject }) => `<tr class="qi"><td>${esc(user.student_id)}</td><td>${esc(user.name)}</td><td>${esc(user.program || '')}</td><td>${subject ? `<b>${esc(subject.course_code)}</b> ${esc(subject.courses?.name || '')}` : '<span class="mute">No subjects registered</span>'}</td><td>${esc(subject?.grp || '')}</td><td>${esc(subject?.section || '')}</td><td><a class="btn sm" href="#/admin/user/${user.id}">View</a></td></tr>`).join('') || '<tr><td colspan="7" class="mute">No accounts found.</td></tr>'}
+    </tbody></table></div></div>`;
 }
 function wireUserActions(m, after = render) {
   m.querySelectorAll('[data-role]').forEach((b) => (b.onclick = async () => { await q(sb.rpc('admin_set_role', { target: b.dataset.role, new_role: b.dataset.r })); after(); }));
