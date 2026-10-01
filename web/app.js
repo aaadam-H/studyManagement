@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.2';
+const APP_VERSION = '1.1.3';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -228,7 +228,7 @@ const ROUTES = {
   assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], help: ['Help', pgHelp],
 };
 const PUBLIC_ROUTES = {
-  '': ['Home', pgPublicHome], timetable: ['IMJ Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], help: ['Help', pgHelp],
+  '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], help: ['Help', pgHelp],
 };
 const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
 async function boot() {
@@ -697,8 +697,8 @@ async function getPublicData() {
   const names = Object.fromEntries(courses.map((course) => [course.code, course.name]));
   return { settings, courses, classes: classes.map((item) => ({ ...item, course_name: names[item.course_code] || '' })) };
 }
-// The IMJ restriction is intentionally limited to the unauthenticated guest timetable.
-async function getGuestImjTimetable() {
+// The guest view is a read-only example student timetable; the signed-in app has no code restriction.
+async function getGuestExampleTimetable() {
   const [courses, classes] = await Promise.all([
     q(sb.from('courses').select('code,name,credit').like('code', 'IMJ%').order('code')),
     q(sb.from('classes').select('*').like('course_code', 'IMJ%').order('day').order('start_time')),
@@ -726,7 +726,7 @@ function publicClassHtml(item) {
   return `<div class="cls public-cls k-${kindKey(item.kind)}" data-course="${esc(item.course_code)}" data-group="${esc(item.section || '')}" data-text="${esc([item.course_code, item.course_name, item.section, item.kind, item.venue, item.lecturer].filter(Boolean).join(' '))}"><div class="t">${esc(item.start_time)} - ${esc(item.end_time)}</div><div><b>${esc(item.course_code)}</b> ${esc(item.course_name || '')}<br><span class="mute">${[item.kind, item.venue, item.lecturer, item.section ? prettyGroup(item.section) : ''].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
 }
 async function pgPublicTimetable(m) {
-  const data = await getGuestImjTimetable();
+  const data = await getGuestExampleTimetable();
   const courses = data.courses;
   const seen = new Set();
   const classes = data.classes.filter((item) => item.section).filter((item) => {
@@ -739,9 +739,9 @@ async function pgPublicTimetable(m) {
   const groups = Object.keys(groupCounts).sort((a, b) => groupCounts[b] - groupCounts[a] || a.localeCompare(b));
   const selectedGroup = groups[0] || '';
   const byDay = {}; for (const item of classes) (byDay[item.day] ||= []).push(item);
-  m.innerHTML = `<h2>IMJ Timetable</h2><p class="sub">Read-only weekly schedule for one IMJ cohort at a time. It does not combine classes from different groups.</p>
+  m.innerHTML = `<h2>Timetable</h2><p class="sub">Read-only example weekly schedule for a student registered in one IMJ programme group. It does not combine classes from different groups.</p>
   <div class="card public-cta"><div><b>Want your own timetable?</b><p class="mute">Log in and upload your registration slip. StudyHub will use your registered subjects to build your personal week.</p></div><a class="btn" href="#/courses">Log in to build mine</a></div>
-  <div class="card"><div class="row public-filters"><div><label>IMJ subject</label><select id="pt-course" data-plain><option value="">All IMJ subjects</option>${courses.map((course) => `<option value="${esc(course.code)}">${esc(course.code)} - ${esc(course.name || '')}</option>`).join('')}</select></div><div><label>Programme group</label><select id="pt-group" data-plain>${groups.map((group) => `<option value="${esc(group)}" ${group === selectedGroup ? 'selected' : ''}>${esc(groupLabel(group))} - ${groupCounts[group]} classes</option>`).join('')}</select></div><div><label>Search</label><input id="pt-search" type="search" placeholder="Course, lecturer, venue..."></div></div></div>
+  <div class="card"><div class="row public-filters"><div><label>Example registered subject</label><select id="pt-course" data-plain><option value="">All example subjects</option>${courses.map((course) => `<option value="${esc(course.code)}">${esc(course.code)} - ${esc(course.name || '')}</option>`).join('')}</select></div><div><label>Example programme group</label><select id="pt-group" data-plain>${groups.map((group) => `<option value="${esc(group)}" ${group === selectedGroup ? 'selected' : ''}>${esc(groupLabel(group))} - ${groupCounts[group]} classes</option>`).join('')}</select></div><div><label>Search</label><input id="pt-search" type="search" placeholder="Course, lecturer, venue..."></div></div></div>
   ${classes.length ? `${KIND_LEGEND}${[1, 2, 3, 4, 5, 6, 7].map((day) => `<div class="card public-day" data-day-card="${day}"><h3>${DAYN[day]}</h3>${(byDay[day] || []).sort((a, b) => a.start_time.localeCompare(b.start_time)).map(publicClassHtml).join('') || '<p class="mute">No classes.</p>'}</div>`).join('')}` : '<div class="card">No IMJ timetable entries have been loaded yet.</div>'}`;
   const apply = () => {
     const course = document.getElementById('pt-course').value, group = document.getElementById('pt-group').value, term = document.getElementById('pt-search').value.trim().toLowerCase();
