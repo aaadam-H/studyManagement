@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.1.2';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -228,7 +228,7 @@ const ROUTES = {
   assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], help: ['Help', pgHelp],
 };
 const PUBLIC_ROUTES = {
-  '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], help: ['Help', pgHelp],
+  '': ['Home', pgPublicHome], timetable: ['IMJ Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], help: ['Help', pgHelp],
 };
 const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
 async function boot() {
@@ -697,7 +697,8 @@ async function getPublicData() {
   const names = Object.fromEntries(courses.map((course) => [course.code, course.name]));
   return { settings, courses, classes: classes.map((item) => ({ ...item, course_name: names[item.course_code] || '' })) };
 }
-async function getPublicImjTimetable() {
+// The IMJ restriction is intentionally limited to the unauthenticated guest timetable.
+async function getGuestImjTimetable() {
   const [courses, classes] = await Promise.all([
     q(sb.from('courses').select('code,name,credit').like('code', 'IMJ%').order('code')),
     q(sb.from('classes').select('*').like('course_code', 'IMJ%').order('day').order('start_time')),
@@ -725,7 +726,7 @@ function publicClassHtml(item) {
   return `<div class="cls public-cls k-${kindKey(item.kind)}" data-course="${esc(item.course_code)}" data-group="${esc(item.section || '')}" data-text="${esc([item.course_code, item.course_name, item.section, item.kind, item.venue, item.lecturer].filter(Boolean).join(' '))}"><div class="t">${esc(item.start_time)} - ${esc(item.end_time)}</div><div><b>${esc(item.course_code)}</b> ${esc(item.course_name || '')}<br><span class="mute">${[item.kind, item.venue, item.lecturer, item.section ? prettyGroup(item.section) : ''].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
 }
 async function pgPublicTimetable(m) {
-  const data = await getPublicImjTimetable();
+  const data = await getGuestImjTimetable();
   const courses = data.courses;
   const seen = new Set();
   const classes = data.classes.filter((item) => item.section).filter((item) => {
