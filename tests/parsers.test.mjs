@@ -72,6 +72,18 @@ const s = parseSlipLines(['NAME : TEST USER', 'MATRIC NUMBER : 111', 'COURSE REG
 assert.deepEqual([s.name, s.matric, s.semester, s.courses[0].code, s.courses[0].name, s.courses[0].credit], ['TEST USER', '111', 'Sem 1 2026/2027', 'IMJ41002', 'Final Year Project 1', 2]);
 ok('slip: text lines');
 
+const wrappedSlip = parseSlipLines(fs.readFileSync(new URL('./fixtures/registration-slip-wrapped.txt', import.meta.url), 'utf8').split(/\r?\n/));
+assert.deepEqual(wrappedSlip.courses.map((course) => [course.code, course.name, course.credit]), [
+  ['IMJ21203', 'Algorithm and Data Structures', 3],
+  ['IMJ41103', 'Modern Operating System', 3],
+  ['IMJ41203', 'Artificial Intelligence', 3],
+  ['IMJ47203', 'Software Engineering', 3],
+  ['IMJ47403', 'Computer Network Security', 3],
+  ['IMQ22103', 'Discrete Mathematics & Linear Algebra', 3],
+]);
+assert.match(wrappedSlip.courses[5].grp, /UR6523002 - Y2G3, Y2G4 \(INTAKE 2025 & 2026\)/);
+ok('slip: wrapped titles and groups');
+
 const ex = parseExamSlipLines(fs.readFileSync(new URL('./fixtures/exam-slip-sample.txt', import.meta.url), 'utf8').split(/\r?\n/));
 assert.deepEqual([ex.session, ex.matric, ex.index_no, ex.exams.length, ex.notices.length], ['Sem 2 2025/2026', '200000001', '12345', 5, 3]);
 assert.deepEqual(ex.exams[1], { code: 'IMJ32102', credit: 2, date: '2026-07-17', time: '09:00', venue: 'DTC', name: 'Professional Engineers', name_local: 'Jurutera Profesional' });

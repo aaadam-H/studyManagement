@@ -1,0 +1,16 @@
+NAME : TEST STUDENT
+MATRIC NUMBER : 123456789
+PROGRAM : COMPUTER ENGINEERING
+COURSE REGISTRATION SLIP SEMESTER 1 ACADEMIC SESSION 2026/2027
+1 IMJ21203 Algorithma dan Struktur-struktur Data[Algorithm 3 T UR6523002
+and Data Structures]
+2 IMJ41103 Sistem Operasi Moden[Modern Operating System] 3 T UR6523002
+3 IMJ41203 Kecerdasan Buatan[Artificial Intelligence] 3 T UR6523002
+4 IMJ47203 Kejuruteraan Perisian[Software Engineering] 3 T UR6523002
+5 IMJ47403 Keselamatan Rangkaian Komputer[Computer 3 T UR6523002
+Network Security]
+6 IMQ22103 Matematik Diskrit & Aljabar Linear[Discrete 3 T UR6523002 -
+Mathematics & Linear Algebra] Y2G3, Y2G4
+(INTAKE 2025
+& 2026)
+TOTAL CREDITS REGISTERED: 18

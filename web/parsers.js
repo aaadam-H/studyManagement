@@ -9,10 +9,35 @@ export function parseSlipLines(lines) {
     return m ? m[1].trim() : null;
   };
   const courses = [];
-  for (const line of lines) {
-    // "1 IMJ41002 Projek Tahun Akhir 1[Final Year Project 1] 2 FT UR6523002"
-    const m = line.match(/^\s*\d+\s+([A-Z]{3}\d{5})\s*(.*?)\s*(?:\[(.*?)\])?\s+(\d+)\s+([A-Z]{1,3})\s+(\S+)\s*$/);
-    if (m) courses.push({ code: m[1], name: (m[3] || m[2]).trim(), name_local: m[2].trim(), credit: +m[4], status: m[5], grp: m[6] });
+  const starts = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s*\d+\s+([A-Z]{3}\d{5})\s+(.+)$/);
+    if (m) starts.push({ index: i, code: m[1], row: m[2] });
+  }
+  for (let i = 0; i < starts.length; i++) {
+    const current = starts[i];
+    const end = starts[i + 1]?.index ?? lines.length;
+    const continuation = lines.slice(current.index + 1, end);
+    const totalAt = continuation.findIndex((line) => /^TOTAL\s+(?:CREDIT|UNIT)/i.test(line));
+    const tail = continuation.slice(0, totalAt < 0 ? continuation.length : totalAt)
+      .map((line) => line.trim()).filter(Boolean).join(' ');
+    // PDF text extraction can wrap a bracketed English title beneath the course row,
+    // while credit, type, and group stay on the first visual line.
+    const row = current.row.match(/^(.*?)\s+(\d+)\s+([A-Z]{1,3})\s+(.+?)\s*$/);
+    if (!row) continue;
+    const title = `${row[1]} ${tail}`.trim();
+    const bracket = title.match(/^(.*?)\[([^\]]+)\](.*)$/);
+    const nameLocal = (bracket ? bracket[1] : row[1]).trim();
+    const name = (bracket ? bracket[2] : row[1]).trim();
+    const groupTail = (bracket ? bracket[3] : tail).trim();
+    courses.push({
+      code: current.code,
+      name,
+      name_local: nameLocal,
+      credit: +row[2],
+      status: row[3],
+      grp: [row[4], groupTail].filter(Boolean).join(' ').replace(/\s+/g, ' '),
+    });
   }
   const session = text.match(/SEMESTER\s*(\d+)\s+ACADEMIC SESSION\s+([\d/]+)/i);
   return {
