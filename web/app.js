@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.5';
+const APP_VERSION = '1.1.6';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -588,7 +588,7 @@ async function pgWelcome(m) {
       <p class="mute">No slip? Add subjects by code later in <b>My Courses</b>.</p></div>`;
   } else if (wStep === 2) {
     const tt = await getTimetable();
-    body = `<div class="card"><h3>Choose your timetable group</h3>
+    body = `<div class="card group-picker-card"><h3>Choose your timetable group</h3>
       ${!tt.myCourseCount ? '<p>Add your subjects first (previous step); then your group can be chosen here or later on the <b>Timetable</b> page.</p>'
         : !tt.totalClassesInDb ? '<p>The university timetable has not been loaded yet. When it is, pick your group on the <b>Timetable</b> page. You can add classes by hand there meanwhile.</p>'
         : !tt.groupOptions.length ? '<p>Your subjects are not in the loaded timetable (it may be for another semester). You can add your classes by hand on the <b>Timetable</b> page.</p>'
