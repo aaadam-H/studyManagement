@@ -8,7 +8,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.6';
+const APP_VERSION = '1.1.8';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -424,6 +424,15 @@ async function pgDashboard(m) {
   }));
   const gsx = document.getElementById('gsx');
   if (gsx) gsx.onclick = (e) => { e.preventDefault(); store.set('sh_gs_hide_' + me.id, '1'); render(); };
+  m.querySelectorAll('[data-gs-toggle]').forEach((button) => (button.onclick = () => {
+    const key = 'sh_gs_done_' + me.id;
+    let done = {};
+    try { done = JSON.parse(store.get(key) || '{}'); } catch {}
+    if (done[button.dataset.gsToggle]) delete done[button.dataset.gsToggle];
+    else done[button.dataset.gsToggle] = true;
+    store.set(key, JSON.stringify(done));
+    render();
+  }));
 }
 
 /* ---------------- feedback & reports ---------------- */
@@ -632,15 +641,18 @@ async function pgWelcome(m) {
 async function gettingStartedHtml(tt, ac) {
   let html = '';
   if (!store.get('sh_gs_hide_' + me.id)) {
+    let manualDone = {};
+    try { manualDone = JSON.parse(store.get('sh_gs_done_' + me.id) || '{}'); } catch {}
     const items = [
-      [!!(me.email && me.phone && me.program), 'Complete your profile', '#/profile'],
-      [tt.myCourseCount > 0, 'Add your subjects (upload your registration slip)', '#/courses'],
-      ...(tt.totalClassesInDb && tt.myCourseCount ? [[!!tt.main || tt.courses.every((c) => c.chosen || c.section === 'none'), 'Choose your timetable group', '#/timetable']] : []),
-      [!!store.get('sh_cal_' + me.id), 'Add your timetable to Google / Apple Calendar (optional)', '#/timetable'],
+      ['profile', !!(me.email && me.phone && me.program), 'Complete your profile', '#/profile'],
+      ['subjects', tt.myCourseCount > 0, 'Add your subjects (upload your registration slip)', '#/courses'],
+      ...(tt.totalClassesInDb && tt.myCourseCount ? [['group', !!tt.main || tt.courses.every((c) => c.chosen || c.section === 'none'), 'Choose your timetable group', '#/timetable']] : []),
+      ['calendar', !!store.get('sh_cal_' + me.id), 'Add your timetable to Google / Apple Calendar (optional)', '#/timetable'],
     ];
-    const done = items.filter((i) => i[0]).length;
+    const doneItems = items.map(([id, automatic, title, href]) => ({ id, title, href, complete: automatic || !!manualDone[id], manual: !!manualDone[id] }));
+    const done = doneItems.filter((item) => item.complete).length;
     if (done < items.length) html += `<div class="card gs"><div class="gs-head"><h3>Getting started (${done} of ${items.length})</h3><a href="#" id="gsx" class="mute">Hide</a></div>
-      <ul class="check">${items.map(([ok, t, h]) => `<li class="${ok ? 'ok' : ''}">${ok ? '&#10003;' : '&#9675;'} ${ok ? t : `<a href="${h}">${t}</a>`}</li>`).join('')}</ul>
+      <ul class="check">${doneItems.map((item) => `<li class="${item.complete ? 'ok' : ''}"><span>${item.complete ? '&#10003;' : '&#9675;'} ${item.complete ? esc(item.title) : `<a href="${item.href}">${esc(item.title)}</a>`}</span>${item.complete && !item.manual ? '' : `<button type="button" class="sm ghost" data-gs-toggle="${item.id}">${item.manual ? 'Undo' : 'Mark as completed'}</button>`}</li>`).join('')}</ul>
       <p class="mute">New to StudyHub? See <a href="#/help">Help</a> or <a href="#/welcome">run the setup guide</a>.</p></div>`;
   }
   if (me.role === 'admin') {
@@ -781,6 +793,19 @@ function timetableHtml(tt) {
 async function pgTimetable(m) {
   const [tt, ac] = await Promise.all([getTimetable(), getAcademic()]);
   const noData = !tt.totalClassesInDb;
+  const clashes = {};
+  for (let i = 0; i < tt.classes.length; i++) {
+    const a = tt.classes[i];
+    if (!a.course_code || a.custom) continue;
+    for (let j = i + 1; j < tt.classes.length; j++) {
+      const b = tt.classes[j];
+      if (!b.course_code || b.custom || a.course_code === b.course_code || a.day !== b.day) continue;
+      if (a.start_time >= b.end_time || b.start_time >= a.end_time) continue;
+      const note = { code: b.course_code, day: b.day, start: b.start_time, end: b.end_time };
+      (clashes[a.course_code] ||= []).push(note);
+      (clashes[b.course_code] ||= []).push({ code: a.course_code, day: a.day, start: a.start_time, end: a.end_time });
+    }
+  }
   const courseOpts = tt.courses.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('');
   m.innerHTML = `<h2>Timetable</h2><p class="sub">Built from your registered subjects and the university timetable. Mix-and-match groups are fine.</p>
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
@@ -791,8 +816,8 @@ async function pgTimetable(m) {
       : '<p>None of your subjects appear in the loaded timetable. Add your classes manually below.</p>'}</div>
   <div class="card"><h3>2. Group for each subject</h3>
     <p class="mute">Took a subject with a different group? Change it here. Choose "Hide" for subjects without scheduled classes.</p>
-    <table><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr><td><b>${esc(c.code)}</b> ${esc(c.name || '')}</td><td>
-      ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}">
+    <table><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr><td><b>${esc(c.code)}</b> ${esc(c.name || '')}${(clashes[c.code] || []).map((clash) => `<span class="clash-note">Schedule clash with ${esc(clash.code)} on ${esc(DAYN[clash.day])}, ${esc(clash.start)}-${esc(clash.end)}</span>`).join('')}</td><td>
+      ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}" data-plain>
         <option value="" ${!c.section ? 'selected' : ''}>${tt.main && c.groups.includes(tt.main) ? 'Same as main group' : c.groups.length === 1 ? 'Only group: ' + esc(prettyGroup(c.groups[0])) : '- choose -'}</option>
         ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(groupLabel(g))}</option>`).join('')}
         <option value="none" ${c.section === 'none' ? 'selected' : ''}>Hide this subject</option></select>`
