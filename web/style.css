@@ -159,6 +159,15 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 .email-in .em-local{flex:2 1 0;min-width:80px}.email-in .em-domain{flex:3 1 0;min-width:120px;color:var(--mute)}.email-in .em-domain:focus{color:var(--ink)}
 .email-in .em-local{flex:1 1 0}.email-in .em-domain{flex:0 1 auto;width:calc(26ch + 22px);min-width:0;max-width:68%}
 @media(max-width:480px){.email-in{flex-wrap:wrap}.email-in .em-local{flex:1 1 100%}.email-in .em-domain{flex:1 1 0;width:auto;max-width:none}}
+@media(max-width:480px){
+  .row>*{flex:1 1 100%;min-width:0}
+  .row>button{flex:0 0 auto}
+  .qbar{align-items:stretch}
+  .qbar>input,.qbar>select{flex:1 1 100%;width:100%;min-width:0}
+  .qbar .qn{flex:1 1 100%}
+  .public-filters>div{flex:1 1 100%;min-width:0}
+  table th,table td{overflow-wrap:anywhere}
+}
 
 /* buttons: one consistent look (height, alignment, hover/focus states) */
 button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;line-height:1.2;white-space:nowrap;font-weight:500;
