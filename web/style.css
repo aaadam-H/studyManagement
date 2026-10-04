@@ -222,3 +222,15 @@ footer .ver{margin-top:4px;color:var(--mute)}
   .subject-groups td{border:0;padding:4px 0}
   .subject-groups tr{padding:8px 0;border-bottom:1px solid var(--line)}
 }
+
+/* Registered courses: readable cards at phone and desktop widths. */
+.course-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin:16px 0 24px}
+.course-item{min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.course-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.course-code{color:var(--brand);white-space:nowrap;letter-spacing:.02em}
+.course-credit{white-space:nowrap}.course-remove{margin-left:auto;white-space:nowrap}
+.course-item h4{font-size:16px;margin:10px 0 8px;line-height:1.4}
+.course-item p{margin:0;font-size:13px;overflow-wrap:anywhere}
+.course-item p span{display:block;margin-bottom:2px;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+
+.group-schedule-note{font-size:13px;color:var(--mute);margin:8px 0 0}
