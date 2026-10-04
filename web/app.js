@@ -1,4 +1,5 @@
-import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.4';
+import { longHolidays } from './holidays.js?v=1.1.11';
+import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
 const $app = document.getElementById('app');
@@ -8,7 +9,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.9';
+const APP_VERSION = '1.1.11';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -396,6 +397,7 @@ async function pgDashboard(m) {
   const today = ac.day(t);
   const todays = today.classes ? tt.classes.filter((c) => c.day === dow) : [];
   const nextHol = ac.events.find((e) => e.end_date >= t && e.no_class);
+  const nextBreak = longHolidays(ac.periods, ac.events).find((b) => b.end_date >= t && b.leave_dates.every((d) => d >= t));
   const pending = asg.filter((a) => !a.done);
   const overdue = pending.filter((a) => a.due_date && a.due_date < t);
   const upcoming = bul.posts.filter((p) => (!p.course_code || bul.mine.includes(p.course_code)) && p.due_date && p.due_date >= t).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 5);
@@ -414,6 +416,7 @@ async function pgDashboard(m) {
   <div class="grid"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
   <div class="card"><h3>Today's classes</h3>${todays.length ? todays.map(clsHtml).join('') : `<p class="mute">No classes today${today.st && today.st.kind !== 'lecture' ? ` (${esc(today.st.label.toLowerCase())})` : ''}.</p>`}
   ${nextHol ? `<p class="mute">Next holiday: ${esc(nextHol.title)}, ${esc(fmtDate(nextHol.start_date))}</p>` : ''}</div>
+  ${nextBreak ? `<div class="card"><h3>${nextBreak.leave_dates.length ? 'Possible long holiday' : 'Next long holiday'}</h3>${holidayHtml(nextBreak)}<p><a href="#/academic">See all long holidays</a></p></div>` : ''}
   <div class="card"><h3>Upcoming deadlines from the bulletin</h3>${upcoming.length ? upcoming.map((p) => `<div class="post"><b>${esc(p.due_date)}</b> <span class="tag ${esc(p.kind)}">${esc(p.course_code || 'General')}</span> ${esc(p.title)}</div>`).join('') : '<p class="mute">Nothing due. <a href="#/bulletin">Open bulletin</a></p>'}</div>
   <div class="card"><h3>My pending assignments</h3>${pending.slice(0, 6).map((a) => `<div class="post"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${esc(a.due_date || '')}</span></div>`).join('') || '<p class="mute">All clear.</p>'}</div>
 `;
@@ -918,7 +921,7 @@ function wireCalendarCard(m) {
 
 /* ---------------- courses + slip ---------------- */
 let pdfjs = null;
-async function pdfToLines(file) {
+async function pdfToLines(file, registration = false) {
   if (!pdfjs) {
     // bundled in web/vendor (no third-party CDN at runtime)
     pdfjs = await import('./vendor/pdf.min.mjs');
@@ -929,7 +932,9 @@ async function pdfToLines(file) {
   const lines = [];
   for (let p = 1; p <= doc.numPages; p++) {
     const rows = [];
-    for (const it of (await (await doc.getPage(p)).getTextContent()).items) {
+    const items = (await (await doc.getPage(p)).getTextContent()).items;
+    const table = registration ? registrationTableLines(items) : null;
+    for (const it of items) {
       if (!it.str) continue;
       const y = it.transform[5];
       let row = rows.find((r) => Math.abs(r.y - y) <= 2);
@@ -937,7 +942,14 @@ async function pdfToLines(file) {
       row.items.push(it);
     }
     rows.sort((a, b) => b.y - a.y);
-    for (const r of rows) lines.push(r.items.sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim());
+    let tableAdded = false;
+    for (const r of rows) {
+      if (table && table.bottom < r.y && r.y < table.top) {
+        if (!tableAdded) { lines.push(...table.lines); tableAdded = true; }
+        continue;
+      }
+      lines.push(r.items.sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim());
+    }
   }
   return lines;
 }
@@ -947,9 +959,10 @@ function mountSlipUpload(root, onSaved) {
   root.querySelector('#up').onsubmit = async (e) => {
     e.preventDefault();
     const msg = root.querySelector('#upmsg');
+    root.querySelector('#preview').innerHTML = '';
     msg.innerHTML = '<span class="mute">Reading...</span>';
     try {
-      const p = parseSlipLines(await pdfToLines(e.target.slip.files[0]));
+      const p = parseSlipLines(await pdfToLines(e.target.slip.files[0], true));
       if (!p.courses.length) throw new Error('No courses found. Is this the UniMAP course registration slip?');
       msg.innerHTML = '';
       root.querySelector('#preview').innerHTML = `<h4>Found on the slip</h4><p>${esc(p.name || '')} · ${esc(p.matric || '')} · ${esc(p.program || '')} · ${esc(p.semester || '')}</p>
@@ -1165,6 +1178,22 @@ async function pgCalendar(m) {
   document.getElementById('pv').onclick = go(-1); document.getElementById('nx').onclick = go(1); document.getElementById('td').onclick = go(0);
 }
 
+function holidayHtml(b) {
+  const date = (d) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  return `<div class="holiday-head"><b>${esc(date(b.start_date))} – ${esc(date(b.end_date))}</b><span class="tag">${b.days} days off</span></div>
+    <p>${b.names.map(esc).join(' · ')}</p>
+    <p class="mute">${b.leave_dates.length ? `<b>1 day of leave needed:</b> ${b.leave_dates.map((d) => esc(date(d))).join(', ')}. Request leave / arrange your absence for this day.` : 'No leave needed.'}</p>`;
+}
+function longHolidayCard(ac, today) {
+  const breaks = longHolidays(ac.periods, ac.events);
+  return `<div class="card" id="long-holidays"><h3>Long holidays</h3>
+    <p class="mute">Public holidays and academic breaks joined with Saturday–Sunday weekends. Possible long holidays need one extra weekday off. Check your classes, exams and deadlines before planning.</p>
+    <label class="holiday-history"><input type="checkbox" id="holiday-past"> Show past breaks</label>
+    ${breaks.map((b) => `<article class="holiday-option" data-holiday-end="${esc(b.end_date)}" data-holiday-expired="${b.leave_dates.some((d) => d < today)}" ${b.end_date < today || b.leave_dates.some((d) => d < today) ? 'hidden' : ''}><span class="tag ${b.leave_dates.length ? 'urgent' : ''}">${b.leave_dates.length ? 'Possible long holiday' : 'Long holiday'}</span>${holidayHtml(b)}</article>`).join('')}
+    <p id="holiday-empty" class="mute" ${breaks.some((b) => b.end_date >= today && b.leave_dates.every((d) => d >= today)) ? 'hidden' : ''}>No upcoming long holidays found in the uploaded calendar.</p>
+  </div>`;
+}
+
 /* ---------------- academic calendar page ---------------- */
 async function pgAcademic(m) {
   const ac = await getAcademic();
@@ -1175,11 +1204,18 @@ async function pgAcademic(m) {
   m.innerHTML = `<h2>Academic Calendar</h2><p class="sub">Semester dates, breaks and public holidays from the university's academic calendar.</p>
   ${!ac.periods.length && !ac.events.length ? `<div class="card">The academic calendar has not been uploaded yet. ${me?.role === 'admin' ? '<a href="#/admin">Upload it in Admin</a>.' : 'Please check back after the admin uploads it.'}</div>` : ''}
   ${st ? `<div class="card now"><b>Now:</b> ${esc(statusText(st))}</div>` : ''}
+  ${longHolidayCard(ac, t)}
   ${sems.map((sem) => `<div class="card"><h3>${esc(sem)}</h3><table><tr><th>Period</th><th>From</th><th>To</th><th>Weeks</th></tr>
     ${ac.periods.filter((p) => p.semester === sem).map((p) => `<tr class="${p.start_date <= t && t <= p.end_date ? 'cur' : p.end_date < t ? 'past' : ''}"><td>${esc(p.label)}</td><td>${esc(fmtDate(p.start_date))}</td><td>${esc(fmtDate(p.end_date))}</td><td>${weeksOf(p)}</td></tr>`).join('')}</table></div>`).join('')}
   ${ac.events.length ? `<div class="card"><h3>Holidays and events</h3><table><tr><th>Date</th><th>What</th><th></th></tr>
     ${ac.events.map((e) => `<tr class="${e.end_date < t ? 'past' : ''}"><td>${esc(fmtDate(e.start_date))}${e.end_date !== e.start_date ? ' - ' + esc(fmtDate(e.end_date)) : ''}</td><td>${esc(e.title)}</td><td>${e.no_class ? '<span class="tag urgent">no classes</span>' : ''}</td></tr>`).join('')}</table></div>` : ''}
   <p class="mute">The university's calendar is subject to change.</p>`;
+  m.querySelector('#holiday-past').onchange = (e) => {
+    const rows = [...m.querySelectorAll('[data-holiday-end]')];
+    rows.forEach((r) => { r.hidden = !e.target.checked && (r.dataset.holidayEnd < t || r.dataset.holidayExpired === 'true'); });
+    m.querySelector('#holiday-empty').hidden = rows.some((r) => !r.hidden);
+    m.querySelector('#holiday-empty').textContent = e.target.checked ? 'No long holidays found in the uploaded calendar.' : 'No upcoming long holidays found in the uploaded calendar.';
+  };
 }
 
 /* ---------------- profile ---------------- */

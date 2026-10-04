@@ -1,6 +1,45 @@
 // Pure parsing helpers, shared by the app and tests. No network, no Supabase.
 
 /* ---------- course registration slip (UniMAP) ---------- */
+// Wrapped cells can start above the course code's baseline. Rebuild each row
+// from its vertical band and the table's column headings before flattening it.
+export function registrationTableLines(items) {
+  const textItems = items.filter((i) => i.str?.trim());
+  const header = textItems.find((i) => /^CREDIT$/i.test(i.str.trim()));
+  if (!header) return null;
+  const sameHeader = textItems.filter((i) => Math.abs(i.transform[5] - header.transform[5]) <= 2);
+  const status = sameHeader.find((i) => /^STATUS$/i.test(i.str.trim()));
+  const group = sameHeader.find((i) => /^GROUP$/i.test(i.str.trim()));
+  if (!status || !group) return null;
+  const top = header.transform[5];
+  const anchors = textItems.filter((i) => /^[A-Z]{3}\d{5}$/.test(i.str.trim()) && i.transform[5] < top)
+    .sort((a, b) => b.transform[5] - a.transform[5]);
+  if (!anchors.length) return null;
+  const total = textItems.find((i) => /^TOTAL(?:\s|$)/i.test(i.str.trim()) && i.transform[5] < anchors.at(-1).transform[5]);
+  const last = anchors.at(-1).transform[5];
+  const bottom = total?.transform[5] ?? last - (anchors.length > 1 ? (anchors.at(-2).transform[5] - last) / 2 : 12);
+  const creditX = header.transform[4];
+  const statusX = status.transform[4];
+  const groupX = (status.transform[4] + group.transform[4]) / 2;
+  const join = (cell) => cell.sort((a, b) => b.transform[5] - a.transform[5] || a.transform[4] - b.transform[4])
+    .map((i) => i.str.trim()).join(' ').replace(/\s+/g, ' ').trim();
+  const lines = anchors.map((anchor, index) => {
+    const y = anchor.transform[5];
+    const upper = index ? (anchors[index - 1].transform[5] + y) / 2 : top;
+    const lower = index + 1 < anchors.length ? (y + anchors[index + 1].transform[5]) / 2 : bottom;
+    const band = textItems.filter((i) => lower < i.transform[5] && i.transform[5] < upper);
+    const number = band.find((i) => i.transform[4] < anchor.transform[4] && /^\d+\.?$/.test(i.str.trim()));
+    if (!number) throw new Error('Could not identify every course row in this slip. No courses were saved.');
+    const titleX = anchor.transform[4] + anchor.width;
+    const title = join(band.filter((i) => titleX < i.transform[4] && i.transform[4] < creditX));
+    const credit = join(band.filter((i) => creditX <= i.transform[4] && i.transform[4] < statusX));
+    const type = join(band.filter((i) => statusX <= i.transform[4] && i.transform[4] < groupX));
+    const grp = join(band.filter((i) => groupX <= i.transform[4]));
+    return `${number.str.replace(/\.$/, '')} ${anchor.str} ${title} ${credit} ${type} ${grp}`.trim();
+  });
+  return { lines, top, bottom };
+}
+
 // `lines` = text lines of the PDF (see pdfToLines in app.js)
 export function parseSlipLines(lines) {
   const text = lines.join('\n');
@@ -40,6 +79,10 @@ export function parseSlipLines(lines) {
     });
   }
   const session = text.match(/SEMESTER\s*(\d+)\s+ACADEMIC SESSION\s+([\d/]+)/i);
+  const total = text.match(/TOTAL\s+CREDITS?\s+REGISTERED\s*:\s*(\d+)/i);
+  if (courses.length !== starts.length || (total && courses.reduce((sum, c) => sum + c.credit, 0) !== +total[1])) {
+    throw new Error('Could not read every course in this slip. No courses were saved. Please check the PDF or add the courses manually.');
+  }
   return {
     name: field('NAME'),
     matric: field('MATRIC NUMBER'),

@@ -201,3 +201,11 @@ footer .ver{margin-top:4px;color:var(--mute)}
   .users-tbl .u-acts{grid-column:1/-1;margin-top:8px}
   .users-tbl .acts{flex-wrap:wrap}
 }
+
+/* Long holiday planner */
+.holiday-option{padding:14px 0;border-top:1px solid var(--line)}
+.holiday-option[hidden]{display:none}
+.holiday-head{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:8px}
+.holiday-option p{margin:6px 0}
+.holiday-history{display:flex;gap:8px;align-items:center;margin:12px 0}
+.holiday-history input{width:auto;margin:0}
