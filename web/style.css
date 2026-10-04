@@ -1,6 +1,7 @@
 :root{--bg:#f5f6fa;--card:#fff;--ink:#1c2130;--mute:#6b7285;--line:#e3e6ee;--brand:#4f46e5;--brand-ink:#fff;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--lec:#4f46e5;--lab:#059669;--tut:#0891b2}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1220;--card:#181c2e;--ink:#e8eaf3;--mute:#98a0b8;--line:#2a3050;--brand:#818cf8;--brand-ink:#0f1220;--lec:#818cf8;--lab:#34d399;--tut:#22d3ee}}
 *{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
 a{color:var(--brand)}
 .shell{display:flex;min-height:100vh}
@@ -124,11 +125,11 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 #calday{margin-top:14px}#calday h3{margin-top:0}#calday h4{margin:12px 0 4px}
 @media(max-width:760px){.cal{gap:2px}.cal .d{min-height:54px;padding:2px}.cal .e{font-size:10px;padding:0 2px}.cal .e.c .nm{display:none}.cal .e.per,.cal .e.holi,.cal .e.due{font-size:0;height:4px;padding:0;background:currentColor}}
 /* type-to-search dropdowns */
-.combo{position:relative}
-.combo-list{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);max-height:280px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);padding:4px}
+.combo{position:relative;min-width:0;max-width:100%}
+/* Keep options in the card's flow so scrolling cards cannot clip the menu. */
+.combo-list{position:static;max-height:min(40vh,280px);max-height:min(40dvh,280px);overflow:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px;margin-top:4px}
 .group-picker-card{overflow:visible}
-.group-picker-card .combo-list{position:static;max-height:min(55vh,560px);margin-top:4px;box-shadow:none}
-.combo-list .opt{padding:6px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.combo-list .opt{padding:8px 10px;border-radius:6px;cursor:pointer;white-space:normal;overflow-wrap:anywhere}
 .combo-list .opt.on{font-weight:600}.combo-list .opt.act{background:var(--brand);color:var(--brand-ink)}
 .combo-list .none{padding:6px 10px;color:var(--mute)}
 .clash-note{display:block;color:var(--bad);font-size:12px;font-weight:600;margin-top:3px}
@@ -209,3 +210,15 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .holiday-option p{margin:6px 0}
 .holiday-history{display:flex;gap:8px;align-items:center;margin:12px 0}
 .holiday-history input{width:auto;margin:0}
+
+/* Safari zooms focused controls below 16px; keep the page at its normal scale. */
+@media(max-width:760px){
+  input,select,textarea,input[type=file]{font-size:16px}
+  .row>*{min-width:min(120px,100%);max-width:100%}
+  button,.btn{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+  .card{overflow-wrap:anywhere}
+  .subject-groups,.subject-groups tbody,.subject-groups tr,.subject-groups td{display:block;width:100%}
+  .subject-groups tr:first-child{display:none}
+  .subject-groups td{border:0;padding:4px 0}
+  .subject-groups tr{padding:8px 0;border-bottom:1px solid var(--line)}
+}
