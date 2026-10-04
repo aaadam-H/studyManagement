@@ -2,7 +2,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { parseHTML } from 'linkedom';
-import { parseSlipLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from '../web/parsers.js';
+import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from '../web/parsers.js';
 
 const ok = (m) => console.log('  ok -', m);
 const { document } = parseHTML(fs.readFileSync(new URL('./fixtures/timetable-sample.html', import.meta.url), 'utf8'));
@@ -84,6 +84,27 @@ assert.deepEqual(wrappedSlip.courses.map((course) => [course.code, course.name, 
 assert.match(wrappedSlip.courses[5].grp, /UR6523002 - Y2G3, Y2G4 \(INTAKE 2025 & 2026\)/);
 ok('slip: wrapped titles and groups');
 
+// Anonymized table text/positions from the reported PDF. Its multiline cells
+// straddle the course-code baseline, including a four-line group in row six.
+const positionedItems = JSON.parse(fs.readFileSync(new URL('./fixtures/registration-slip-positioned.json', import.meta.url), 'utf8'));
+const positioned = registrationTableLines(positionedItems);
+const actualSlip = parseSlipLines([...positioned.lines, 'TOTAL CREDITS REGISTERED: 18']);
+assert.deepEqual(actualSlip.courses.map((c) => [c.code, c.name, c.credit]), [
+  ['IMJ21203', 'Algorithm and Data Structures', 3],
+  ['IMJ41103', 'Modern Operating System', 3],
+  ['IMJ41203', 'Artificial Intelligence', 3],
+  ['IMJ47203', 'Software Engineering', 3],
+  ['IMJ47403', 'Computer Network Security', 3],
+  ['IMQ22103', 'Discrete Mathematics & Linear Algebra', 3],
+]);
+assert.ok(actualSlip.courses.every((c) => c.status === 'FT'));
+assert.ok(actualSlip.courses.slice(0, 5).every((c) => c.grp === 'UR6523002'));
+assert.equal(actualSlip.courses[5].grp, 'UR6523002 - Y2G3, Y2G4 (INTAKE 2025 & 2026)');
+assert.equal(registrationTableLines([]), null);
+assert.throws(() => parseSlipLines(['1 IMJ21203 3 FT UR6523002']), /Could not read every course/);
+assert.throws(() => parseSlipLines([positioned.lines[1], 'TOTAL CREDITS REGISTERED: 18']), /Could not read every course/);
+ok('slip: positioned PDF cells give all six subjects, correct names/groups, 18 credits; partial imports rejected');
+
 const ex = parseExamSlipLines(fs.readFileSync(new URL('./fixtures/exam-slip-sample.txt', import.meta.url), 'utf8').split(/\r?\n/));
 assert.deepEqual([ex.session, ex.matric, ex.index_no, ex.exams.length, ex.notices.length], ['Sem 2 2025/2026', '200000001', '12345', 5, 3]);
 assert.deepEqual(ex.exams[1], { code: 'IMJ32102', credit: 2, date: '2026-07-17', time: '09:00', venue: 'DTC', name: 'Professional Engineers', name_local: 'Jurutera Profesional' });
@@ -93,26 +114,37 @@ assert.ok(ex.notices[2].endsWith('strictly prohibited.'));
 assert.ok(!JSON.stringify(ex).includes('000000000000'), 'IC number must never be read');
 ok('exam slip: dates, 12h times, venues, unscheduled subjects, rules; IC number ignored');
 
-async function pdfLines(path) {
+async function pdfLines(path, registration = false) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(path)), verbosity: 0 }).promise;
   const lines = [];
   for (let p = 1; p <= doc.numPages; p++) {
     const rows = [];
-    for (const it of (await (await doc.getPage(p)).getTextContent()).items) {
+    const items = (await (await doc.getPage(p)).getTextContent()).items;
+    const table = registration ? registrationTableLines(items) : null;
+    for (const it of items) {
       if (!it.str) continue;
       let row = rows.find((r) => Math.abs(r.y - it.transform[5]) <= 2);
       if (!row) rows.push((row = { y: it.transform[5], items: [] }));
       row.items.push(it);
     }
-    for (const r of rows.sort((a, b) => b.y - a.y)) lines.push(r.items.sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim());
+    let tableAdded = false;
+    for (const r of rows.sort((a, b) => b.y - a.y)) {
+      if (table && table.bottom < r.y && r.y < table.top) {
+        if (!tableAdded) { lines.push(...table.lines); tableAdded = true; }
+        continue;
+      }
+      lines.push(r.items.sort((a, b) => a.transform[4] - b.transform[4]).map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim());
+    }
   }
   return lines;
 }
 if (process.env.SLIP_PDF) {
-  const r = parseSlipLines(await pdfLines(process.env.SLIP_PDF));
+  const r = parseSlipLines(await pdfLines(process.env.SLIP_PDF, true));
   console.log('   ', r.matric, r.program, r.semester, r.courses.map((c) => c.code).join(','));
   assert.ok(r.courses.length > 0 && r.matric);
+  if (process.env.SLIP_EXPECTED_COUNT) assert.equal(r.courses.length, +process.env.SLIP_EXPECTED_COUNT);
+  if (process.env.SLIP_EXPECTED_CREDITS) assert.equal(r.courses.reduce((sum, c) => sum + c.credit, 0), +process.env.SLIP_EXPECTED_CREDITS);
   ok('slip: real PDF (same line-building as the browser)');
 }
 if (process.env.EXAM_SLIP_PDF) {

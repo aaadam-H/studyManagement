@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import { longHolidays } from '../web/holidays.js';
+
+const holiday = (start, end = start, title = 'Holiday', no_class = true) => ({ start_date: start, end_date: end, title, no_class });
+const plan = (...events) => longHolidays([], events);
+const check = (events, start, end, days, leave) => {
+  const b = plan(...events).find((b) => b.start_date === start && b.end_date === end);
+  assert.ok(b, `${start} to ${end} exists`);
+  assert.equal(b.days, days);
+  assert.deepEqual(b.leave_dates, leave);
+};
+check([holiday('2026-10-08')], '2026-10-08', '2026-10-11', 4, ['2026-10-09']);
+check([holiday('2026-10-06')], '2026-10-03', '2026-10-06', 4, ['2026-10-05']);
+check([holiday('2026-10-09')], '2026-10-09', '2026-10-11', 3, []);
+check([holiday('2026-10-05')], '2026-10-03', '2026-10-05', 3, []);
+check([holiday('2026-10-08', '2026-10-09'), holiday('2026-10-12')], '2026-10-08', '2026-10-12', 5, []);
+check([holiday('2026-12-31')], '2026-12-31', '2027-01-03', 4, ['2027-01-01']);
+check([holiday('2028-02-29')], '2028-02-26', '2028-02-29', 4, ['2028-02-28']);
+assert.deepEqual(plan(holiday('2026-10-07')), [], 'Wednesday needs two days of leave and is not a one-day bridge');
+assert.deepEqual(plan(holiday('2026-10-10')), [], 'a normal weekend is not a long holiday');
+assert.deepEqual(plan(holiday('2026-10-09', '2026-10-09', 'Event', false)), []);
+assert.deepEqual(plan(), []);
+const periods = [{ start_date: '2026-11-30', end_date: '2026-12-06', label: 'Mid-semester break', kind: 'mid_break' }];
+const b = longHolidays(periods, [holiday('2026-12-01')]).find((b) => !b.leave_dates.length);
+assert.equal(b.start_date, '2026-11-28');
+assert.equal(b.end_date, '2026-12-06');
+assert.equal(b.days, 9);
+assert.deepEqual(b.names, ['Mid-semester break', 'Holiday']);
+assert.deepEqual(longHolidays([{ ...periods[0], kind: 'exam' }], []), [], 'exam periods are not holidays');
+assert.equal(plan(holiday('2026-10-09'), holiday('2026-10-09')).length, 1, 'duplicate holidays do not duplicate breaks');
+assert.deepEqual(plan(holiday('bad-date')), []);
+console.log('  ok - long holidays: weekends, one-day bridges, consecutive holidays, academic breaks, year boundaries and leap years');
