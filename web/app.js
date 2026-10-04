@@ -1,3 +1,4 @@
+import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.13';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
@@ -10,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.12';
+const APP_VERSION = '1.1.13';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -326,7 +327,7 @@ function wireInstallHint(root) {
 const matches = (text, query) => { const t = text.toLowerCase(); return query.toLowerCase().split(/\s+/).every((w) => t.includes(w)); };
 // Long dropdowns become type-to-search. The real <select> stays in the form (hidden), so FormData and change handlers still work.
 function comboize(sel) {
-  if (sel.dataset.combo || sel.multiple || sel.hasAttribute('data-plain') || sel.options.length < 8) return;
+  if (sel.dataset.combo || sel.multiple || sel.hasAttribute('data-plain') || (sel.options.length < 8 && !sel.hasAttribute('data-search'))) return;
   sel.dataset.combo = '1';
   const box = document.createElement('div'), inp = document.createElement('input'), list = document.createElement('div');
   box.className = 'combo'; list.className = 'combo-list'; list.hidden = true; list.setAttribute('role', 'listbox');
@@ -416,7 +417,7 @@ async function pgDashboard(m) {
   const nextExams = upcomingExams(slip).slice(0, 4);
   const dismissed = new Set(((await sb.from('update_dismissals').select('post_id')).data || []).map((r) => r.post_id));
   const updates = bul.posts.filter((p) => p.kind === 'update' && !dismissed.has(p.id));
-  m.innerHTML = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
+  const dashboardHtml = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
   ${updates.map((p) => `<div class="card upd" role="status"><div class="upd-head"><span class="tag update">UPDATE</span> <b>${esc(p.title)}</b><button class="sm ghost" data-dismiss="${p.id}" title="Hide this update">Dismiss</button></div>
     ${p.body ? `<p class="fb-msg">${esc(p.body)}</p>` : ''}<span class="mute">ADMIN · ${esc(new Date(p.created_at).toLocaleString())}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''}</span></div>`).join('')}
   ${installHintHtml()}
@@ -425,11 +426,15 @@ async function pgDashboard(m) {
   ${nextExams.length ? `<div class="card exams-card"><h3>Upcoming exams</h3>${nextExams.map((e) => `<div class="post"><span class="tag exam">${esc(countdown(e.date))}</span> <b>${esc(e.code)}</b> ${esc(e.name || '')}<br><span class="mute">${esc(fmtExamDate(e.date))}${e.time ? ', ' + esc(fmtTime(e.time)) : ''}${e.venue ? ' · ' + esc(e.venue) : ''}</span></div>`).join('')}<p><a href="#/exams">All exams</a></p></div>` : ''}
   <div class="grid"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
   <div class="card"><h3>Today's classes</h3>${todays.length ? todays.map(clsHtml).join('') : `<p class="mute">No classes today${today.st && today.st.kind !== 'lecture' ? ` (${esc(today.st.label.toLowerCase())})` : ''}.</p>`}
-  ${nextHol ? `<p class="mute">Next holiday: ${esc(nextHol.title)}, ${esc(fmtDate(nextHol.start_date))}</p>` : ''}</div>
+  </div>
+  <div class="card holiday-next"><div class="holiday-head"><h3>${nextHol && nextHol.start_date < t ? 'Holiday now' : 'Next upcoming holiday'}</h3>${nextHol ? `<span class="tag">${nextHol.start_date < t ? 'Happening now' : esc(countdown(nextHol.start_date))}</span>` : ''}</div>
+    ${nextHol ? `<h4>${esc(nextHol.title)}</h4><p>${esc(fmtDate(nextHol.start_date))}${nextHol.end_date !== nextHol.start_date ? ' – ' + esc(fmtDate(nextHol.end_date)) : ''}</p>` : '<p class="mute">No upcoming holidays in the uploaded calendar.</p>'}
+    <a href="#/academic">See holidays and academic calendar</a></div>
   ${nextBreak ? `<div class="card"><h3>${nextBreak.leave_dates.length ? 'Possible long holiday' : 'Next long holiday'}</h3>${holidayHtml(nextBreak)}<p><a href="#/academic">See all long holidays</a></p></div>` : ''}
   <div class="card"><h3>Upcoming deadlines from the bulletin</h3>${upcoming.length ? upcoming.map((p) => `<div class="post"><b>${esc(p.due_date)}</b> <span class="tag ${esc(p.kind)}">${esc(p.course_code || 'General')}</span> ${esc(p.title)}</div>`).join('') : '<p class="mute">Nothing due. <a href="#/bulletin">Open bulletin</a></p>'}</div>
   <div class="card"><h3>My pending assignments</h3>${pending.slice(0, 6).map((a) => `<div class="post"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${esc(a.due_date || '')}</span></div>`).join('') || '<p class="mute">All clear.</p>'}</div>
 `;
+  m.replaceChildren(DOMPurify.sanitize(dashboardHtml, { RETURN_DOM_FRAGMENT: true }));
   wireInstallHint(m);
   m.querySelectorAll('[data-dismiss]').forEach((b) => (b.onclick = async () => {
     b.disabled = true;
@@ -808,6 +813,12 @@ function timetableHtml(tt) {
 async function pgTimetable(m) {
   const [tt, ac] = await Promise.all([getTimetable(), getAcademic()]);
   const noData = !tt.totalClassesInDb;
+  let groupSchedules = {}, scheduleError = false;
+  if (!noData && tt.courses.length) {
+    try { groupSchedules = await loadGroupSchedules(sb, tt.courses.map((c) => c.code)); }
+    catch { scheduleError = true; }
+  }
+  const scheduleFor = (c, group) => groupScheduleText(groupSchedules[c.code]?.[group]);
   const clashes = {};
   for (let i = 0; i < tt.classes.length; i++) {
     const a = tt.classes[i];
@@ -831,11 +842,12 @@ async function pgTimetable(m) {
       : '<p>None of your subjects appear in the loaded timetable. Add your classes manually below.</p>'}</div>
   <div class="card"><h3>2. Group for each subject</h3>
     <p class="mute">Took a subject with a different group? Change it here. Choose "Hide" for subjects without scheduled classes.</p>
+    ${scheduleError ? '<p class="mute">Group schedules could not be loaded. You can still choose a group; reload to retry the schedule details.</p>' : ''}
     <table class="subject-groups"><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr><td><b>${esc(c.code)}</b> ${esc(c.name || '')}${(clashes[c.code] || []).map((clash) => `<span class="clash-note">Schedule clash with ${esc(clash.code)} on ${esc(DAYN[clash.day])}, ${esc(clash.start)}-${esc(clash.end)}</span>`).join('')}</td><td>
-      ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}" data-plain>
-        <option value="" ${!c.section ? 'selected' : ''}>${tt.main && c.groups.includes(tt.main) ? 'Same as main group' : c.groups.length === 1 ? 'Only group: ' + esc(prettyGroup(c.groups[0])) : '- choose -'}</option>
-        ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(groupLabel(g))}</option>`).join('')}
-        <option value="none" ${c.section === 'none' ? 'selected' : ''}>Hide this subject</option></select>`
+      ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}" data-search aria-label="Group for ${esc(c.code)}">
+        <option value="" ${!c.section ? 'selected' : ''}>${tt.main && c.groups.includes(tt.main) ? 'Same as main group — ' + esc(scheduleFor(c, tt.main)) : c.groups.length === 1 ? 'Only group: ' + esc(prettyGroup(c.groups[0])) + ' — ' + esc(scheduleFor(c, c.groups[0])) : '- choose -'}</option>
+        ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(prettyGroup(g))} — ${esc(scheduleFor(c, g))}</option>`).join('')}
+        <option value="none" ${c.section === 'none' ? 'selected' : ''}>Hide this subject</option></select>${c.chosen ? `<p class="group-schedule-note">${esc(scheduleFor(c, c.chosen))}</p>` : ''}`
       : '<span class="mute">Not in the loaded timetable (it may be for a different semester). Add it manually below.</span>'}</td></tr>`).join('')}</table></div>` : ''}
   <div class="card"><h3>${tt.myCourseCount && !noData ? '3. ' : ''}Add a class manually</h3>
     <p class="mute">For classes that are missing or different from the university timetable.</p>
@@ -995,11 +1007,12 @@ function mountSlipUpload(root, onSaved) {
 
 async function pgCourses(m) {
   const cs = await myCourses();
-  m.innerHTML = `<h2>My Courses</h2><p class="sub">Upload your course registration slip (PDF). It is read in your browser; only the course list is saved.</p>
+  const coursesHtml = `<h2>My Courses</h2><p class="sub">Upload your course registration slip (PDF). It is read in your browser; only the course list is saved.</p>
   <div class="card">${SLIP_FORM}</div>
   <div class="card"><h3>Registered courses (${cs.reduce((a, c) => a + (c.credit || 0), 0)} credits)</h3>
-  ${cs.length ? `<table><tr><th>Code</th><th>Name</th><th>Credit</th><th>Group</th><th></th></tr>${cs.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit ?? ''}</td><td>${esc(c.grp || '')}</td><td><button class="sm ghost" data-rm="${esc(c.code)}">Remove</button></td></tr>`).join('')}</table>` : '<p class="mute">None yet.</p>'}
+  ${cs.length ? `<div class="course-list">${cs.map((c) => `<article class="course-item"><div class="course-head"><b class="course-code">${esc(c.code)}</b><span class="tag course-credit">${esc(c.credit ?? '—')} ${c.credit === 1 ? 'credit' : 'credits'}</span><button class="sm ghost course-remove" data-rm="${esc(c.code)}" aria-label="Remove ${esc(c.code)}">Remove</button></div><h4>${esc(c.name || 'Untitled course')}</h4><p class="mute"><span>Programme group</span> ${esc(c.grp || 'Not specified')}</p></article>`).join('')}</div>` : '<p class="mute">None yet.</p>'}
   <h4>Add a course manually</h4><form id="add" class="row"><div><label>Code</label><input name="code" placeholder="IMJ41103" required pattern="[A-Za-z]{3}[0-9]{5}"></div><div><label>Name</label><input name="name"></div><button>Add</button></form><div id="addmsg"></div></div>`;
+  m.replaceChildren(DOMPurify.sanitize(coursesHtml, { RETURN_DOM_FRAGMENT: true }));
   m.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => { await q(sb.from('enrollments').delete().eq('user_id', me.id).eq('course_code', b.dataset.rm)); render(); }));
   document.getElementById('add').onsubmit = async (e) => {
     e.preventDefault();
