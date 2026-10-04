@@ -178,7 +178,7 @@ declare
   sid text := case when lower(trim(m->>'student_id')) = lower(split_part(new.email, '@', 1)) then trim(m->>'student_id')
                    else split_part(new.email, '@', 1) end;
 begin
-  if sid !~ '^[A-Za-z0-9._-]{3,30}$' then raise exception 'invalid student ID'; end if;
+  if sid !~ '^[0-9]{9}$' then raise exception 'Student ID must contain exactly 9 digits (YYPPP####)'; end if;
   insert into profiles(id, student_id, name, email, phone, program, faculty, year, semester)
   values (new.id, sid,
           left(coalesce(nullif(trim(m->>'name'), ''), 'Student'), 120),

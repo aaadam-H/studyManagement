@@ -1,4 +1,5 @@
 import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.14';
+import { parseStudentId } from './student-id.js?v=1.1.16';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
@@ -11,7 +12,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.15';
+const APP_VERSION = '1.1.16';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -174,7 +175,8 @@ function authScreen(mode = 'login', opts = {}) {
   $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">${reg ? 'Create your student account' : 'Log in to your study planner'}</p>
   ${reason}
   <form class="card" id="f">
-    <label>Student ID (matric no.) <span class="req">*</span></label><input name="student_id" required pattern="[A-Za-z0-9._-]{3,30}" autocomplete="username" value="${reg ? '' : esc(store.get('last_sid') || '')}">
+    <label>Student ID (matric no.) <span class="req">*</span></label><input name="student_id" required inputmode="numeric" pattern="[0-9]{9}" minlength="9" maxlength="9" placeholder="YYPPP####" title="Enter the 9-digit ID in YYPPP#### format" autocomplete="username" value="${reg ? '' : esc(store.get('last_sid') || '')}">
+    ${reg ? '<p class="mute sid-format">9 digits: 2-digit entry year + 3-digit programme code + 4-digit university number. Example format: 231021306.</p>' : ''}
     ${reg ? profileFields({}) : ''}
     <label>Password ${reg ? '<span class="req">*</span> (min 8 characters)' : ''}</label><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">
     <label class="remember"><input type="checkbox" name="remember" ${remembered() ? 'checked' : ''}> Remember me <span class="mute">(untick on a shared computer)</span></label>
@@ -207,12 +209,14 @@ function authScreen(mode = 'login', opts = {}) {
     e.preventDefault();
     const msg = document.getElementById('msg');
     const { student_id, password, remember, ...info } = fd(e.target);
+    if (reg && !parseStudentId(student_id)) return flash(msg, 'Student ID must be exactly 9 digits (YYPPP####).');
     // decide where the session is saved before Supabase writes it
     store.set('remember', remember ? '1' : '0');
     if (remember) store.set('last_sid', student_id.trim()); else tryStore(() => localStorage.removeItem('last_sid'));
     try {
       if (reg) {
-        const { data, error } = await sb.auth.signUp({ email: loginEmail(student_id), password, options: { data: { student_id: student_id.trim(), ...info } } });
+        const normalizedId = student_id.trim();
+        const { data, error } = await sb.auth.signUp({ email: loginEmail(normalizedId), password, options: { data: { student_id: normalizedId, ...info } } });
         if (error) throw new Error(/already registered/i.test(error.message) ? 'That student ID is already registered' : error.message);
         if (!data.session) return flash(msg, 'Account created, but Supabase is asking for email confirmation. The admin must turn off "Confirm email" (see SETUP.md).');
         location.hash = '#/welcome';
