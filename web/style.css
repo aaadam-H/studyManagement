@@ -234,3 +234,8 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .course-item p span{display:block;margin-bottom:2px;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
 
 .group-schedule-note{font-size:13px;color:var(--mute);margin:8px 0 0}
+
+.holiday-next{border-left:4px solid var(--brand)}
+.holiday-next .holiday-head h3{margin:0}
+.holiday-next h4{font-size:18px;margin:14px 0 6px}
+.holiday-next p{margin:0 0 14px}

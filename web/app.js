@@ -417,7 +417,7 @@ async function pgDashboard(m) {
   const nextExams = upcomingExams(slip).slice(0, 4);
   const dismissed = new Set(((await sb.from('update_dismissals').select('post_id')).data || []).map((r) => r.post_id));
   const updates = bul.posts.filter((p) => p.kind === 'update' && !dismissed.has(p.id));
-  m.innerHTML = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
+  const dashboardHtml = `<h2>Dashboard</h2><p class="sub">${new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}${today.st ? ` · <a href="#/academic">${esc(statusText(today.st))}</a>` : ''}</p>
   ${updates.map((p) => `<div class="card upd" role="status"><div class="upd-head"><span class="tag update">UPDATE</span> <b>${esc(p.title)}</b><button class="sm ghost" data-dismiss="${p.id}" title="Hide this update">Dismiss</button></div>
     ${p.body ? `<p class="fb-msg">${esc(p.body)}</p>` : ''}<span class="mute">ADMIN · ${esc(new Date(p.created_at).toLocaleString())}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''}</span></div>`).join('')}
   ${installHintHtml()}
@@ -426,11 +426,15 @@ async function pgDashboard(m) {
   ${nextExams.length ? `<div class="card exams-card"><h3>Upcoming exams</h3>${nextExams.map((e) => `<div class="post"><span class="tag exam">${esc(countdown(e.date))}</span> <b>${esc(e.code)}</b> ${esc(e.name || '')}<br><span class="mute">${esc(fmtExamDate(e.date))}${e.time ? ', ' + esc(fmtTime(e.time)) : ''}${e.venue ? ' · ' + esc(e.venue) : ''}</span></div>`).join('')}<p><a href="#/exams">All exams</a></p></div>` : ''}
   <div class="grid"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
   <div class="card"><h3>Today's classes</h3>${todays.length ? todays.map(clsHtml).join('') : `<p class="mute">No classes today${today.st && today.st.kind !== 'lecture' ? ` (${esc(today.st.label.toLowerCase())})` : ''}.</p>`}
-  ${nextHol ? `<p class="mute">Next holiday: ${esc(nextHol.title)}, ${esc(fmtDate(nextHol.start_date))}</p>` : ''}</div>
+  </div>
+  <div class="card holiday-next"><div class="holiday-head"><h3>${nextHol && nextHol.start_date < t ? 'Holiday now' : 'Next upcoming holiday'}</h3>${nextHol ? `<span class="tag">${nextHol.start_date < t ? 'Happening now' : esc(countdown(nextHol.start_date))}</span>` : ''}</div>
+    ${nextHol ? `<h4>${esc(nextHol.title)}</h4><p>${esc(fmtDate(nextHol.start_date))}${nextHol.end_date !== nextHol.start_date ? ' – ' + esc(fmtDate(nextHol.end_date)) : ''}</p>` : '<p class="mute">No upcoming holidays in the uploaded calendar.</p>'}
+    <a href="#/academic">See holidays and academic calendar</a></div>
   ${nextBreak ? `<div class="card"><h3>${nextBreak.leave_dates.length ? 'Possible long holiday' : 'Next long holiday'}</h3>${holidayHtml(nextBreak)}<p><a href="#/academic">See all long holidays</a></p></div>` : ''}
   <div class="card"><h3>Upcoming deadlines from the bulletin</h3>${upcoming.length ? upcoming.map((p) => `<div class="post"><b>${esc(p.due_date)}</b> <span class="tag ${esc(p.kind)}">${esc(p.course_code || 'General')}</span> ${esc(p.title)}</div>`).join('') : '<p class="mute">Nothing due. <a href="#/bulletin">Open bulletin</a></p>'}</div>
   <div class="card"><h3>My pending assignments</h3>${pending.slice(0, 6).map((a) => `<div class="post"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${esc(a.due_date || '')}</span></div>`).join('') || '<p class="mute">All clear.</p>'}</div>
 `;
+  m.replaceChildren(DOMPurify.sanitize(dashboardHtml, { RETURN_DOM_FRAGMENT: true }));
   wireInstallHint(m);
   m.querySelectorAll('[data-dismiss]').forEach((b) => (b.onclick = async () => {
     b.disabled = true;
