@@ -9,7 +9,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.11';
+const APP_VERSION = '1.1.12';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -336,14 +336,23 @@ function comboize(sel) {
   sel.after(box); box.append(inp, list);
   const label = () => { const o = sel.options[sel.selectedIndex]; return o && !o.disabled ? o.text : ''; };
   let items = [], act = -1;
+  // Scroll the options only. scrollIntoView can also move the whole page.
+  const revealActive = () => {
+    const option = list.querySelector('.act');
+    if (!option) return;
+    const top = option.offsetTop - list.offsetTop;
+    const bottom = top + option.offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+  };
   const draw = (typed) => {
     items = [...sel.options].filter((o) => !o.disabled && (!typed || matches(o.text, inp.value)));
     act = typed ? 0 : Math.max(0, items.findIndex((o) => o.selected));
     list.innerHTML = items.map((o, i) => `<div class="opt${i === act ? ' act' : ''}${o.selected ? ' on' : ''}" data-i="${i}" role="option">${esc(o.text)}</div>`).join('') || '<div class="none">No matches</div>';
     list.hidden = false; inp.setAttribute('aria-expanded', 'true');
-    list.querySelector('.act')?.scrollIntoView({ block: 'nearest' });
+    revealActive();
   };
-  const move = (d) => { if (!items.length) return; act = (act + d + items.length) % items.length; list.querySelectorAll('.opt').forEach((x, i) => x.classList.toggle('act', i === act)); list.querySelector('.act').scrollIntoView({ block: 'nearest' }); };
+  const move = (d) => { if (!items.length) return; act = (act + d + items.length) % items.length; list.querySelectorAll('.opt').forEach((x, i) => x.classList.toggle('act', i === act)); revealActive(); };
   const close = () => { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); inp.value = label(); inp.placeholder = 'Type to search...'; };
   // opening clears the box (current choice shows as the placeholder) so typing starts a fresh search
   const open = () => { inp.placeholder = label() || 'Type to search...'; inp.value = ''; draw(false); };
@@ -821,7 +830,7 @@ async function pgTimetable(m) {
       : '<p>None of your subjects appear in the loaded timetable. Add your classes manually below.</p>'}</div>
   <div class="card"><h3>2. Group for each subject</h3>
     <p class="mute">Took a subject with a different group? Change it here. Choose "Hide" for subjects without scheduled classes.</p>
-    <table><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr><td><b>${esc(c.code)}</b> ${esc(c.name || '')}${(clashes[c.code] || []).map((clash) => `<span class="clash-note">Schedule clash with ${esc(clash.code)} on ${esc(DAYN[clash.day])}, ${esc(clash.start)}-${esc(clash.end)}</span>`).join('')}</td><td>
+    <table class="subject-groups"><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr><td><b>${esc(c.code)}</b> ${esc(c.name || '')}${(clashes[c.code] || []).map((clash) => `<span class="clash-note">Schedule clash with ${esc(clash.code)} on ${esc(DAYN[clash.day])}, ${esc(clash.start)}-${esc(clash.end)}</span>`).join('')}</td><td>
       ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}" data-plain>
         <option value="" ${!c.section ? 'selected' : ''}>${tt.main && c.groups.includes(tt.main) ? 'Same as main group' : c.groups.length === 1 ? 'Only group: ' + esc(prettyGroup(c.groups[0])) : '- choose -'}</option>
         ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(groupLabel(g))}</option>`).join('')}
