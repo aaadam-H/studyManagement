@@ -126,8 +126,8 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 @media(max-width:760px){.cal{gap:2px}.cal .d{min-height:54px;padding:2px}.cal .e{font-size:10px;padding:0 2px}.cal .e.c .nm{display:none}.cal .e.per,.cal .e.holi,.cal .e.due{font-size:0;height:4px;padding:0;background:currentColor}}
 /* type-to-search dropdowns */
 .combo{position:relative;min-width:0;max-width:100%}
-/* Keep options in the card's flow so scrolling cards cannot clip the menu. */
-.combo-list{position:static;max-height:min(40vh,280px);max-height:min(40dvh,280px);overflow:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px;margin-top:4px}
+/* Portal menu floats over nearby content instead of growing the timetable row. */
+.combo-list{position:fixed;z-index:1000;max-height:min(40vh,280px);max-height:min(40dvh,280px);overflow-y:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px;box-shadow:0 8px 24px #0005}
 .group-picker-card{overflow:visible}
 .combo-list .opt{padding:8px 10px;border-radius:6px;cursor:pointer;white-space:normal;overflow-wrap:anywhere}
 .combo-list .opt.on{font-weight:600}.combo-list .opt.act{background:var(--brand);color:var(--brand-ink)}

@@ -1,4 +1,4 @@
-import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.13';
+import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.14';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.13';
+const APP_VERSION = '1.1.14';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -335,9 +335,35 @@ function comboize(sel) {
   inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-expanded', 'false');
   sel.required = false; sel.hidden = true;
   if (sel.style.width) box.style.width = sel.style.width;
-  sel.after(box); box.append(inp, list);
+  sel.after(box); box.append(inp); document.body.append(list);
   const label = () => { const o = sel.options[sel.selectedIndex]; return o && !o.disabled ? o.text : ''; };
   let items = [], act = -1;
+  let tracking = false;
+  const stopTracking = () => {
+    if (!tracking) return;
+    window.removeEventListener('scroll', positionMenu, true);
+    window.removeEventListener('resize', positionMenu);
+    tracking = false;
+  };
+  const positionMenu = () => {
+    if (list.hidden) return;
+    const rect = inp.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > window.innerHeight) return close();
+    const gap = 4, maxHeight = Math.min(280, Math.floor(window.innerHeight * 0.4));
+    const below = window.innerHeight - rect.bottom - gap, above = rect.top - gap;
+    const openAbove = below < Math.min(list.scrollHeight, 180) && above > below;
+    const height = Math.max(80, Math.min(maxHeight, openAbove ? above : below));
+    list.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - rect.width - 4))}px`;
+    list.style.width = `${Math.min(rect.width, window.innerWidth - 8)}px`;
+    list.style.maxHeight = `${height}px`;
+    list.style.top = `${openAbove ? Math.max(4, rect.top - Math.min(list.scrollHeight, height) - gap) : rect.bottom + gap}px`;
+  };
+  const startTracking = () => {
+    if (tracking) return;
+    window.addEventListener('scroll', positionMenu, true);
+    window.addEventListener('resize', positionMenu);
+    tracking = true;
+  };
   // Scroll the options only. scrollIntoView can also move the whole page.
   const revealActive = () => {
     const option = list.querySelector('.act');
@@ -352,10 +378,11 @@ function comboize(sel) {
     act = typed ? 0 : Math.max(0, items.findIndex((o) => o.selected));
     list.innerHTML = items.map((o, i) => `<div class="opt${i === act ? ' act' : ''}${o.selected ? ' on' : ''}" data-i="${i}" role="option">${esc(o.text)}</div>`).join('') || '<div class="none">No matches</div>';
     list.hidden = false; inp.setAttribute('aria-expanded', 'true');
+    startTracking(); positionMenu();
     revealActive();
   };
   const move = (d) => { if (!items.length) return; act = (act + d + items.length) % items.length; list.querySelectorAll('.opt').forEach((x, i) => x.classList.toggle('act', i === act)); revealActive(); };
-  const close = () => { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); inp.value = label(); inp.placeholder = 'Type to search...'; };
+  const close = () => { list.hidden = true; stopTracking(); inp.setAttribute('aria-expanded', 'false'); inp.value = label(); inp.placeholder = 'Type to search...'; };
   // opening clears the box (current choice shows as the placeholder) so typing starts a fresh search
   const open = () => { inp.placeholder = label() || 'Type to search...'; inp.value = ''; draw(false); };
   const pick = (o) => { const changed = !o.selected; o.selected = true; close(); if (changed) sel.dispatchEvent(new Event('change', { bubbles: true })); };
