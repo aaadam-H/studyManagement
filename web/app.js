@@ -12,7 +12,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.17';
+const APP_VERSION = '1.1.18';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -841,6 +841,63 @@ function timetableHtml(tt) {
   <table><tr><th>Subject</th><th>Group used</th></tr>${tt.courses.map((c) => `<tr><td>${esc(c.code)} ${esc(c.name || '')}</td><td>${c.chosen ? esc(groupLabel(c.chosen)) : c.section === 'none' ? 'hidden' : '<span class="mute">not set</span>'}</td></tr>`).join('')}</table></div>
   ${weekHtml(tt)}`;
 }
+function drawTimetableWallpaper(canvas, tt) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const width = canvas.width, height = canvas.height, margin = 68;
+  const classesByDay = Array.from({ length: 7 }, (_, index) => ({ day: index + 1, items: tt.classes.filter((item) => item.day === index + 1) })).filter((day) => day.items.length);
+  const roundedRect = (x, y, w, h, r) => {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); ctx.fill();
+  };
+  ctx.fillStyle = '#101827'; ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#818cf8'; ctx.fillRect(margin, 90, 8, 154);
+  ctx.fillStyle = '#f4f6ff'; ctx.font = '700 54px system-ui, sans-serif'; ctx.fillText('MY WEEKLY', margin + 28, 132);
+  ctx.fillText('TIMETABLE', margin + 28, 194);
+  ctx.fillStyle = '#aeb9d1'; ctx.font = '24px system-ui, sans-serif';
+  ctx.fillText(`${tt.classes.length} CLASSES  ·  ${classesByDay.length} DAYS`, margin + 30, 246);
+  const groupText = tt.main ? groupLabel(tt.main) : '';
+  if (groupText) { ctx.fillStyle = '#aeb9d1'; ctx.font = '20px system-ui, sans-serif'; ctx.fillText(groupText, margin + 30, 282, width - margin * 2 - 30); }
+  let y = groupText ? 330 : 304;
+  const bottom = height - 112;
+  const rows = classesByDay.reduce((sum, day) => sum + day.items.length, 0);
+  const rowHeight = Math.max(28, Math.min(78, Math.floor((bottom - y - classesByDay.length * 54) / Math.max(rows, 1))));
+  const palette = { lec: '#6578ef', lab: '#18a879', tut: '#0798ad', other: '#c37d35' };
+  const fitText = (text, maxWidth) => {
+    let result = String(text || 'Class');
+    while (result && ctx.measureText(result).width > maxWidth) result = `${result.slice(0, -2)}…`;
+    return result;
+  };
+  for (const day of classesByDay) {
+    ctx.fillStyle = '#dbe3f5'; ctx.font = '700 25px system-ui, sans-serif'; ctx.fillText(DAYN[day.day].toUpperCase(), margin, y + 30);
+    ctx.fillStyle = '#8290aa'; ctx.font = '18px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillText(`${day.items.length}`, width - margin, y + 30); ctx.textAlign = 'left';
+    y += 42;
+    for (const item of day.items) {
+      const cardY = y, cardH = rowHeight - 7;
+      ctx.fillStyle = '#1a2639'; roundedRect(margin, cardY, width - margin * 2, cardH, 12);
+      const type = (item.kind || '').toUpperCase();
+      const color = /LAB/.test(type) ? palette.lab : /TUT/.test(type) ? palette.tut : /LECT/.test(type) ? palette.lec : palette.other;
+      ctx.fillStyle = color; roundedRect(margin, cardY, 7, cardH, 4);
+      const compact = cardH < 62;
+      const fontSize = compact ? Math.max(12, Math.floor(cardH * 0.45)) : 19;
+      ctx.fillStyle = '#e8edfa'; ctx.font = `600 ${compact ? fontSize : 19}px system-ui, sans-serif`;
+      const timeX = margin + 24, textX = margin + 220, textWidth = width - margin - textX - 22;
+      const textY = compact ? cardY + Math.max(fontSize + 3, cardH - 7) : cardY + 27;
+      ctx.fillText(`${item.start_time}–${item.end_time}`, timeX, textY);
+      ctx.fillText(fitText(item.course_name || item.title || 'Class', textWidth), textX, textY);
+      if (!compact) {
+        ctx.fillStyle = '#aeb9d1'; ctx.font = '16px system-ui, sans-serif';
+        const info = [item.course_code, type, item.venue].filter(Boolean).join('  ·  ');
+        ctx.fillText(fitText(info, textWidth), textX, cardY + 52);
+      }
+      y += rowHeight;
+    }
+    y += 5;
+  }
+  ctx.fillStyle = '#8290aa'; ctx.font = '18px system-ui, sans-serif';
+  ctx.fillText('STUDYHUB  ·  WEEKLY SCHEDULE', margin, height - 54);
+}
 async function pgTimetable(m) {
   const [tt, ac] = await Promise.all([getTimetable(), getAcademic()]);
   const noData = !tt.totalClassesInDb;
@@ -890,11 +947,21 @@ async function pgTimetable(m) {
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
       <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
     ${tt.custom.length ? `<h4>Your added classes</h4><table>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</table>` : ''}</div>
+  <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Save a 9:16 phone wallpaper with your selected groups and added classes.</p></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Portrait preview of your weekly timetable"></canvas><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? '1080 × 1920 PNG' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   ${calendarCard(tt, ac)}
   <h3>Your week</h3>${weekHtml(tt)}
   <p class="mute">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>`;
   // Sanitize the complete template before it enters the live document.
   m.replaceChildren(DOMPurify.sanitize(timetableHtml, { RETURN_DOM_FRAGMENT: true }));
+  const wallpaper = m.querySelector('#timetable-wallpaper');
+  drawTimetableWallpaper(wallpaper, tt);
+  m.querySelector('#download-wallpaper').onclick = () => wallpaper.toBlob((blob) => {
+    if (!blob) return flash(m.querySelector('#wallpaper-msg'), 'Could not create the wallpaper. Please try again.');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob); link.download = 'studyhub-timetable.png';
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+  }, 'image/png');
   const mg = document.getElementById('mg');
   if (mg) mg.onchange = async () => { me = await q(sb.from('profiles').update({ subgroup: mg.value || null }).eq('id', me.id).select().single()); render(); };
   m.querySelectorAll('.cg').forEach((s) => (s.onchange = async () => {
