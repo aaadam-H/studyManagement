@@ -248,3 +248,4 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .holiday-next .holiday-head h3{margin:0}
 .holiday-next h4{font-size:18px;margin:14px 0 6px}
 .holiday-next p{margin:0 0 14px}
+.changelog-entry h3{display:inline;font-size:18px;margin:0 8px}.changelog-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.changelog-head>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.changelog-body{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0}.changelog-edit{margin-top:12px}.changelog-edit summary{cursor:pointer}

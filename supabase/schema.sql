@@ -97,6 +97,16 @@ create table if not exists public.feedback (
   created_at timestamptz not null default now()
 );
 create index if not exists feedback_status_idx on public.feedback(status);
+create table if not exists public.changelog (
+  id bigint generated always as identity primary key,
+  version text check (length(version) <= 40),
+  title text not null check (length(title) between 1 and 200),
+  body text not null check (length(body) between 1 and 8000),
+  is_public boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists changelog_public_created_idx on public.changelog(is_public, created_at desc);
 create table if not exists public.posts (
   id bigint generated always as identity primary key,
   course_code text references public.courses(code),          -- null = general notice (admins only)
@@ -238,6 +248,7 @@ alter table public.my_classes enable row level security;
 alter table public.academic_periods enable row level security;
 alter table public.academic_events enable row level security;
 alter table public.feedback enable row level security;
+alter table public.changelog enable row level security;
 
 -- profiles: see yourself (admins see everyone); edit only your own details, never your role or student ID
 drop policy if exists profiles_read on public.profiles;
@@ -276,6 +287,22 @@ revoke insert, update, delete on public.feedback from anon, authenticated;
 grant insert (kind, subject, message, post_id, page) on public.feedback to authenticated;
 grant update (reply_seen_at) on public.feedback to authenticated;
 grant delete on public.feedback to authenticated;
+
+-- changelog: everyone can read public entries; only admins can read private entries or make changes
+revoke all on public.changelog from anon, authenticated;
+grant select on public.changelog to anon, authenticated;
+grant insert, update, delete on public.changelog to authenticated;
+grant usage, select on sequence public.changelog_id_seq to authenticated;
+drop policy if exists changelog_public_read on public.changelog;
+create policy changelog_public_read on public.changelog for select to anon using (is_public);
+drop policy if exists changelog_signed_read on public.changelog;
+create policy changelog_signed_read on public.changelog for select to authenticated using (is_public or public.is_admin());
+drop policy if exists changelog_admin_insert on public.changelog;
+create policy changelog_admin_insert on public.changelog for insert to authenticated with check (public.is_admin());
+drop policy if exists changelog_admin_update on public.changelog;
+create policy changelog_admin_update on public.changelog for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists changelog_admin_delete on public.changelog;
+create policy changelog_admin_delete on public.changelog for delete to authenticated using (public.is_admin());
 
 -- enrollments: your own; adding goes through save_courses(); you may change only the chosen section
 drop policy if exists enroll_read on public.enrollments;

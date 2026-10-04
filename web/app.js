@@ -12,7 +12,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.16';
+const APP_VERSION = '1.1.17';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -232,10 +232,10 @@ function authScreen(mode = 'login', opts = {}) {
 /* ---------------- shell ---------------- */
 const ROUTES = {
   '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], exams: ['Exams', pgExams], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
-  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], help: ['Help', pgHelp],
+  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
 };
 const PUBLIC_ROUTES = {
-  '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], help: ['Help', pgHelp],
+  '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
 };
 const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
 async function boot() {
@@ -272,7 +272,7 @@ async function render() {
   // first visit: send new students through the setup guide (they can still open Help)
   if (needsOnboarding() && !['welcome', 'help', 'feedback'].includes(key)) { history.replaceState(null, '', '#/welcome'); key = 'welcome'; }
   const routes = { ...ROUTES, ...(me.role === 'admin' ? {
-    admin: ['Admin', pgAdmin], 'admin-subjects': ['Subject Search', pgAdminSubjects], 'admin-registrations': ['Student Registrations', pgAdminRegistrations],
+    admin: ['Admin', pgAdmin], 'admin-subjects': ['Subject Search', pgAdminSubjects], 'admin-registrations': ['Student Registrations', pgAdminRegistrations], 'admin-changelog': ['Manage changelog', pgAdminChangelog],
   } : {}) };
   const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
   const pageTitle = key === 'welcome' ? 'Getting started' : (routes[key] || routes[''])[0];
@@ -1432,6 +1432,40 @@ async function pgAdminRegistrations(m) {
     <div class="table-scroll"><table class="admin-data-tbl"><thead><tr><th>Student ID</th><th>Name</th><th>Programme</th><th>Subject</th><th>Group</th><th>Section</th><th></th></tr></thead><tbody>
     ${rows.map(({ user, subject }) => `<tr class="qi"><td>${esc(user.student_id)}</td><td>${esc(user.name)}</td><td>${esc(user.program || '')}</td><td>${subject ? `<b>${esc(subject.course_code)}</b> ${esc(subject.courses?.name || '')}` : '<span class="mute">No subjects registered</span>'}</td><td>${esc(subject?.grp || '')}</td><td>${esc(subject?.section || '')}</td><td><a class="btn sm" href="#/admin/user/${user.id}">View</a></td></tr>`).join('') || '<tr><td colspan="7" class="mute">No accounts found.</td></tr>'}
     </tbody></table></div></div>`;
+}
+const changelogDate = (value) => new Date(value).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+async function pgPublicChangelog(m) {
+  const entries = await q(sb.from('changelog').select('id,version,title,body,created_at').eq('is_public', true).order('created_at', { ascending: false }));
+  m.innerHTML = `<h2>Changelog</h2><p class="sub">Updates and improvements to StudyHub.</p>
+    ${entries.map((entry) => `<article class="card changelog-entry"><div class="changelog-head"><div>${entry.version ? `<span class="ver-tag">${esc(entry.version)}</span>` : ''}<h3>${esc(entry.title)}</h3></div><time class="mute" datetime="${esc(entry.created_at)}">${esc(changelogDate(entry.created_at))}</time></div><p class="changelog-body">${esc(entry.body)}</p></article>`).join('') || '<div class="card mute">No public updates yet.</div>'}`;
+}
+async function pgAdminChangelog(m) {
+  const entries = await q(sb.from('changelog').select('*').order('created_at', { ascending: false }));
+  m.innerHTML = `<h2>Manage changelog</h2><p class="sub">Private entries are visible only to admins. Publish an entry when it is ready for everyone.</p>
+    <div class="card"><h3>New entry</h3><form id="changelog-new"><div class="row"><div><label>Version (optional)</label><input name="version" maxlength="40" placeholder="e.g. 1.2.0"></div><div><label>Title</label><input name="title" required maxlength="200"></div></div><label>Update details</label><textarea name="body" required maxlength="8000" rows="5" placeholder="What changed?"></textarea><label class="remember"><input type="checkbox" name="is_public"> Make public immediately</label><div id="cl-new-msg"></div><button>Create entry</button></form></div>
+    <h3>Entries (${entries.length})</h3>${entries.map((entry) => `<article class="card changelog-entry"><div class="changelog-head"><div>${entry.version ? `<span class="ver-tag">${esc(entry.version)}</span>` : ''}<b>${esc(entry.title)}</b><span class="tag ${entry.is_public ? 'info' : ''}">${entry.is_public ? 'Public' : 'Private'}</span></div><time class="mute">${esc(changelogDate(entry.created_at))}</time></div>
+      <details><summary>Edit entry</summary><form class="changelog-edit" data-entry="${entry.id}"><div class="row"><div><label>Version (optional)</label><input name="version" maxlength="40" value="${esc(entry.version || '')}"></div><div><label>Title</label><input name="title" required maxlength="200" value="${esc(entry.title)}"></div></div><label>Update details</label><textarea name="body" required maxlength="8000" rows="5">${esc(entry.body)}</textarea><label class="remember"><input type="checkbox" name="is_public" ${entry.is_public ? 'checked' : ''}> Public</label><div class="btns"><button>Save changes</button><button type="button" class="ghost" data-remove-entry="${entry.id}">Delete</button></div><div class="mute" data-entry-msg="${entry.id}"></div></form></details></article>`).join('') || '<div class="card mute">No changelog entries yet.</div>'}`;
+  document.getElementById('changelog-new').onsubmit = async (event) => {
+    event.preventDefault();
+    const data = fd(event.target);
+    try {
+      await q(sb.from('changelog').insert({ version: data.version || null, title: data.title.trim(), body: data.body.trim(), is_public: Boolean(data.is_public) }));
+      render();
+    } catch (error) { flash(document.getElementById('cl-new-msg'), error.message); }
+  };
+  m.querySelectorAll('.changelog-edit').forEach((form) => { form.onsubmit = async (event) => {
+    event.preventDefault();
+    const data = fd(form);
+    try {
+      await q(sb.from('changelog').update({ version: data.version || null, title: data.title.trim(), body: data.body.trim(), is_public: Boolean(data.is_public), updated_at: new Date().toISOString() }).eq('id', form.dataset.entry));
+      render();
+    } catch (error) { flash(form.querySelector(`[data-entry-msg="${form.dataset.entry}"]`), error.message); }
+  }; });
+  m.querySelectorAll('[data-remove-entry]').forEach((button) => { button.onclick = async () => {
+    if (!confirm('Delete this changelog entry?')) return;
+    try { await q(sb.from('changelog').delete().eq('id', button.dataset.removeEntry)); render(); }
+    catch (error) { flash(button.closest('.changelog-edit').querySelector(`[data-entry-msg="${button.dataset.removeEntry}"]`), error.message); }
+  }; });
 }
 function wireUserActions(m, after = render) {
   m.querySelectorAll('[data-role]').forEach((b) => (b.onclick = async () => { await q(sb.rpc('admin_set_role', { target: b.dataset.role, new_role: b.dataset.r })); after(); }));
