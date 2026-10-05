@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.14';
+import { createZip } from './zip.js?v=1.2.15';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.14';
+const APP_VERSION = '1.2.15';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1849,18 +1849,19 @@ async function pgAdminUser(m, uid) {
   const u = await q(sb.from('profiles').select('*').eq('id', uid).maybeSingle());
   if (!u) { m.innerHTML = '<p><a href="#/admin">&larr; Back to users</a></p><div class="card">User not found.</div>'; return; }
   const [cs, tt] = await Promise.all([myCourses(uid), getTimetable(uid, u)]);
-  m.innerHTML = `<p><a href="#/admin">&larr; Back to users</a></p><h2>${esc(u.name)}</h2>
+  const adminUserHtml = `<p><a href="#/admin">&larr; Back to users</a></p><h2>${esc(u.name)}</h2>
   <p class="sub">Student ID <b>${esc(u.student_id)}</b> · ${esc(u.role)} · joined ${esc(new Date(u.created_at).toLocaleDateString())}</p>
   <div class="card"><h3>Account</h3><div class="row" style="gap:8px">${userButtons(u)}</div></div>
   <form class="card" id="ef"><h3>Edit details</h3><p class="mute">The student ID is the login name and can't be changed.</p>${profileFields(u, 'email')}<label>Main timetable group <span class="mute">(optional, e.g. UR6523002 - Y3G1)</span></label><input name="subgroup" value="${esc(u.subgroup)}" maxlength="80"><div id="em"></div><p><button>Save changes</button></p></form>
   <div class="card"><h3>Registered subjects (${cs.reduce((a, c) => a + (c.credit || 0), 0)} credits)</h3>
-  ${cs.length ? `<table><tr><th>Code</th><th>Name</th><th>Credit</th><th>Group</th><th>Section</th></tr>${cs.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit ?? ''}</td><td>${esc(c.grp || '')}</td><td>${esc(c.section || '')}</td></tr>`).join('')}</table>` : '<p class="mute">None.</p>'}</div>
+  ${cs.length ? `<table class="registered-subjects"><thead><tr><th>Code</th><th>Name</th><th>Credit</th><th>Group</th><th>Section</th></tr></thead><tbody>${cs.map((c) => `<tr><td data-label="Code">${esc(c.code)}</td><td data-label="Name">${esc(c.name)}</td><td data-label="Credits">${c.credit ?? ''}</td><td data-label="Group">${esc(c.grp || '')}</td><td data-label="Section">${esc(c.section || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="mute">None.</p>'}</div>
   <h3>Timetable</h3>${timetableHtml(tt)}`;
+  m.replaceChildren(DOMPurify.sanitize(adminUserHtml, { RETURN_DOM_FRAGMENT: true }));
   wireUserActions(m, () => pgAdminUser(m, uid));
-  document.getElementById('ef').onsubmit = async (e) => {
+  m.querySelector('#ef').onsubmit = async (e) => {
     e.preventDefault();
-    try { await q(sb.rpc('admin_update_profile', { target: uid, data: fd(e.target) })); flash(document.getElementById('em'), 'Saved', 1); }
-    catch (er) { flash(document.getElementById('em'), er.message); }
+    try { await q(sb.rpc('admin_update_profile', { target: uid, data: fd(e.target) })); flash(m.querySelector('#em'), 'Saved', 1); }
+    catch (er) { flash(m.querySelector('#em'), er.message); }
   };
 }
 

@@ -270,8 +270,8 @@ footer .ver{margin-top:4px;color:var(--mute)}
 @media(max-width:760px){
   input,select,textarea,input[type=file]{font-size:16px}
   .row>*{min-width:min(120px,100%);max-width:100%}
-  button,.btn{max-width:100%;white-space:normal;overflow-wrap:anywhere}
-  .card{overflow-wrap:anywhere}
+  button,.btn{max-width:100%;white-space:normal;overflow-wrap:break-word}
+  .card{overflow-wrap:break-word}
   .subject-groups,.subject-groups tbody,.subject-groups tr,.subject-groups td{display:block;width:100%}
   .subject-groups tr:first-child{display:none}
   .subject-groups td{border:0;padding:4px 0}
@@ -375,12 +375,33 @@ button,.btn,input,select,textarea{border-radius:7px}
 .calendar-part-list .btn{flex:0 0 auto}
 @media(max-width:420px){.calendar-part-list>div{align-items:flex-start;flex-direction:column}.calendar-part-list .btn{width:100%}}
 
+@media(max-width:600px){
+  .registered-subjects,.registered-subjects tbody{display:block;width:100%}
+  .registered-subjects thead{display:none}
+  .registered-subjects tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .registered-subjects td{display:block;min-width:0;padding:0;border:0;white-space:normal;overflow-wrap:break-word;word-break:normal}
+  .registered-subjects td::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--mute);font-size:11px;font-weight:600}
+  .registered-subjects td[data-label="Name"]{grid-column:1/-1;font-weight:600}
+  .registered-subjects td[data-label="Code"]{font-weight:600;white-space:nowrap}
+}
+
 .wallpaper-recommendation{font-size:12px;margin:8px 0}
 .wallpaper-custom-colors{margin-top:8px;padding-top:6px;border-top:1px solid var(--line)}
 .wallpaper-custom-colors>summary{font-weight:600}
 .wallpaper-color-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
-.wallpaper-color-grid label{display:flex;align-items:center;justify-content:space-between;gap:5px;margin:0;color:var(--ink);font-size:12px}
+.wallpaper-color-grid label{display:grid;grid-template-columns:minmax(0,1fr) 38px;align-items:center;gap:6px;min-width:0;margin:0;color:var(--ink);font-size:12px;overflow-wrap:normal;word-break:normal}
 .wallpaper-color-grid input[type=color]{width:38px;min-width:38px;height:32px;min-height:32px;padding:2px;cursor:pointer}
+
+/* Keep ordinary words intact on narrow screens; only break genuinely long tokens. */
+@media(max-width:600px){
+  .card{overflow-wrap:break-word}
+  .wallpaper-color-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
+  .wallpaper-color-grid label{grid-template-columns:minmax(0,1fr) 38px;font-size:13px}
+  .video-head{align-items:flex-start}
+  .video-head>div{min-width:0;flex:1 1 auto}
+  .video-head>.tag{flex:0 0 auto;white-space:nowrap}
+  .video-head p{overflow-wrap:break-word}
+}
 
 /* Tablet portrait: free the page from the two side rails. */
 @media(min-width:761px) and (max-width:1100px){
