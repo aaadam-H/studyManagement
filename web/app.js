@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.7';
+import { createZip } from './zip.js?v=1.2.8';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.7';
+const APP_VERSION = '1.2.8';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -375,19 +375,25 @@ async function render() {
       <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu<span class="menu-dot" id="menu-dot" hidden></span></button></div>
     <div class="nav-links" id="nav-links">
     ${navigationHtml(routes, key)}
+    <section class="mobile-account" aria-label="Personal account"><b>${esc(me.name)}</b><span>${esc(me.student_id)}${me.role === 'admin' ? ' · Admin' : ''}</span><div class="mobile-account-actions"><a href="#/profile">Edit profile</a><a href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">UniMAP e-Learning</a>${me.role === 'admin' ? `<button type="button" id="mobile-student-preview" class="ghost">${studentPreview ? 'Exit student view' : 'View as student'}</button>` : ''}<button type="button" id="mobile-logout" class="ghost account-logout">Log out</button></div></section>
     </div></nav>
     <div class="content"><main id="main">Loading...</main>
     <aside class="account-rail" aria-label="Account"><section class="account-panel"><h2>Personal info</h2><b class="account-name">${esc(me.name)}</b><span class="account-id">${esc(me.student_id)}${me.role === 'admin' ? ' · Admin' : ''}</span>
       <a class="account-link" href="#/profile">Edit profile</a><a class="account-link external" href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">UniMAP e-Learning</a>
       ${me.role === 'admin' ? `<button type="button" id="student-preview" class="sm ghost account-preview">${studentPreview ? 'Exit student view' : 'View as student'}</button>` : ''}<button type="button" id="lo" class="ghost account-logout">Log out</button></section></aside>
     ${FOOTER}</div></div>`;
-  document.getElementById('lo').onclick = async () => { await sb.auth.signOut(); };
-  const previewBtn = document.getElementById('student-preview');
-  if (previewBtn) previewBtn.onclick = () => {
+  const logOut = async () => { await sb.auth.signOut(); };
+  document.getElementById('lo').onclick = logOut;
+  document.getElementById('mobile-logout').onclick = logOut;
+  const toggleStudentPreview = () => {
     studentPreview = !studentPreview;
     if (studentPreview && !ROUTES[key]) location.hash = '#/';
     else render();
   };
+  const previewBtn = document.getElementById('student-preview');
+  const mobilePreviewBtn = document.getElementById('mobile-student-preview');
+  if (previewBtn) previewBtn.onclick = toggleStudentPreview;
+  if (mobilePreviewBtn) mobilePreviewBtn.onclick = toggleStudentPreview;
   const nav = document.getElementById('nav'), menuBtn = document.getElementById('menu-btn');
   const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
   menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));

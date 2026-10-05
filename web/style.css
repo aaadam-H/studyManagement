@@ -223,7 +223,7 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .admin-data-tbl{min-width:900px}.table-scroll{max-width:100%;overflow-x:auto}
 @media(min-width:761px){.shell>nav{position:sticky;top:0;align-self:flex-start;height:100vh;min-height:100vh;flex:0 0 220px}.shell>.content{margin-left:0}.guest-shell>nav{width:210px;flex-basis:210px}.guest-shell>.content{margin-left:0}.account-rail{align-self:start}}
 @media(min-width:761px) and (max-width:1000px){.content{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto}.content main{grid-column:1;grid-row:1;padding-right:220px}.content>.account-rail{position:fixed;z-index:25;top:0;right:0;width:205px;height:100vh;flex:none;padding:12px;border-left:1px solid var(--line);background:var(--bg)}.account-panel{position:static}.content>footer{grid-column:1;grid-row:2}}
-@media(max-width:760px){.shell>nav{position:sticky;top:0;z-index:30;inset:auto;height:auto;min-height:0}.shell>.content{margin-left:0}}
+@media(max-width:760px){.shell>nav{position:static;inset:auto;height:auto;min-height:0}.shell>.content{margin-left:0}}
 .users-tbl .u-nm{font-weight:inherit}
 /* phones: each user becomes a small card with its buttons visible (no sideways scrolling) */
 @media(max-width:760px){
@@ -331,20 +331,22 @@ button,.btn,input,select,textarea{border-radius:7px}
   .account-rail{padding:14px}
 }
 @media(max-width:760px){.account-rail{flex:0 0 auto;border-left:0;border-top:1px solid var(--line);padding:14px}.account-panel{position:static}.maintenance-screen{padding:16px}.maintenance-notice{padding:18px}}
+@media(min-width:761px){.mobile-account{display:none}}
 @media(max-width:760px){
-  .content>.account-rail{position:fixed;z-index:20;top:57px;left:0;right:0;width:auto;height:auto;flex:none;padding:0 10px 8px;border:0;background:var(--bg)}
-  .account-panel{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1px 10px;padding:7px 10px;border:1px solid var(--line);box-shadow:0 3px 12px #07131a20}
-  .account-panel h2{display:none}
-  .account-name{grid-column:1;grid-row:1;font-size:13px;line-height:1.25}
-  .account-id{grid-column:1;grid-row:2;font-size:12px}
-  .account-link{display:block;padding:2px 0;font-size:12px;line-height:1.25}
-  .account-link:not(.external){grid-column:1;grid-row:3}
-  .account-link.external{grid-column:2;grid-row:3;border:0;padding:2px 0}
-  .account-preview,.account-logout{grid-column:2;grid-row:1 / span 2;width:auto;margin:0;padding:6px 10px;min-height:34px;font-size:12px}
-  .account-preview{margin-right:72px}
-  .account-logout{position:absolute;right:10px;top:7px}
-  .content main{padding-top:142px}
-  .content>footer{margin-bottom:88px}
+  .shell>nav{position:static;z-index:auto}
+  .nav-top{position:sticky;top:0;z-index:30;background:var(--card);border-bottom:1px solid var(--line)}
+  .nav-links{background:var(--card)}
+  .mobile-account{display:none;border-top:1px solid var(--line);margin-top:8px;padding:12px 10px 4px;color:var(--mute);font-size:13px}
+  nav.open .mobile-account{display:block}
+  .mobile-account>b,.mobile-account>span{display:block;overflow-wrap:anywhere}
+  .mobile-account>b{color:var(--ink);font-size:14px}
+  .mobile-account-actions{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .mobile-account-actions>a{padding:4px 0;text-decoration:none}
+  .mobile-account-actions>button{flex:1 1 auto}
+  .mobile-account-actions .account-logout{color:var(--bad)!important}
+  .content>.account-rail{display:none}
+  .content{grid-template-rows:auto auto}
+  .content main{padding-top:18px}
 }
 .calendar-mode{margin-top:12px}
 .calendar-part-list{display:grid;margin-top:8px}
