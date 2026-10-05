@@ -400,8 +400,13 @@ button,.btn,input,select,textarea{border-radius:7px}
   .mobile-account-actions{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;margin-top:8px}
   .mobile-account-actions>a{padding:4px 0;text-decoration:none}
   .mobile-account-actions>button{flex:1 1 auto}
-  .content,.guest-shell .content{margin-left:0;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto}
-  .content main{grid-column:1;grid-row:1;max-width:none;padding:24px 20px}
+  .shell>.content,.guest-shell>.content{width:100%;max-width:none;min-width:0;align-self:stretch;margin-left:0;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto}
+  .content main{grid-column:1;grid-row:1;width:100%;max-width:none;min-width:0;justify-self:stretch;margin:0;padding:24px 20px}
+  .content main>.dashboard-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
   .content>.account-rail{display:none}
   .content>footer,.guest-shell .content>footer{grid-column:1;grid-row:2}
+}
+
+@media(min-width:761px) and (max-width:899px){
+  .content main>.dashboard-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
