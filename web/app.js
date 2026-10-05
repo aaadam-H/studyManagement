@@ -1849,18 +1849,19 @@ async function pgAdminUser(m, uid) {
   const u = await q(sb.from('profiles').select('*').eq('id', uid).maybeSingle());
   if (!u) { m.innerHTML = '<p><a href="#/admin">&larr; Back to users</a></p><div class="card">User not found.</div>'; return; }
   const [cs, tt] = await Promise.all([myCourses(uid), getTimetable(uid, u)]);
-  m.innerHTML = `<p><a href="#/admin">&larr; Back to users</a></p><h2>${esc(u.name)}</h2>
+  const adminUserHtml = `<p><a href="#/admin">&larr; Back to users</a></p><h2>${esc(u.name)}</h2>
   <p class="sub">Student ID <b>${esc(u.student_id)}</b> · ${esc(u.role)} · joined ${esc(new Date(u.created_at).toLocaleDateString())}</p>
   <div class="card"><h3>Account</h3><div class="row" style="gap:8px">${userButtons(u)}</div></div>
   <form class="card" id="ef"><h3>Edit details</h3><p class="mute">The student ID is the login name and can't be changed.</p>${profileFields(u, 'email')}<label>Main timetable group <span class="mute">(optional, e.g. UR6523002 - Y3G1)</span></label><input name="subgroup" value="${esc(u.subgroup)}" maxlength="80"><div id="em"></div><p><button>Save changes</button></p></form>
   <div class="card"><h3>Registered subjects (${cs.reduce((a, c) => a + (c.credit || 0), 0)} credits)</h3>
   ${cs.length ? `<table class="registered-subjects"><thead><tr><th>Code</th><th>Name</th><th>Credit</th><th>Group</th><th>Section</th></tr></thead><tbody>${cs.map((c) => `<tr><td data-label="Code">${esc(c.code)}</td><td data-label="Name">${esc(c.name)}</td><td data-label="Credits">${c.credit ?? ''}</td><td data-label="Group">${esc(c.grp || '')}</td><td data-label="Section">${esc(c.section || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="mute">None.</p>'}</div>
   <h3>Timetable</h3>${timetableHtml(tt)}`;
+  m.replaceChildren(DOMPurify.sanitize(adminUserHtml, { RETURN_DOM_FRAGMENT: true }));
   wireUserActions(m, () => pgAdminUser(m, uid));
-  document.getElementById('ef').onsubmit = async (e) => {
+  m.querySelector('#ef').onsubmit = async (e) => {
     e.preventDefault();
-    try { await q(sb.rpc('admin_update_profile', { target: uid, data: fd(e.target) })); flash(document.getElementById('em'), 'Saved', 1); }
-    catch (er) { flash(document.getElementById('em'), er.message); }
+    try { await q(sb.rpc('admin_update_profile', { target: uid, data: fd(e.target) })); flash(m.querySelector('#em'), 'Saved', 1); }
+    catch (er) { flash(m.querySelector('#em'), er.message); }
   };
 }
 
