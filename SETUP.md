@@ -70,6 +70,6 @@ one-time copy), **Connect Google Calendar** or **Subscribe in Apple Calendar** (
 
 ## Good to know
 - **Free-tier pause**: Supabase pauses free projects after about a week with no activity. Open the Supabase dashboard and click **Restore**; no data is lost.
-- **Forgotten passwords**: an admin uses **Reset pw** on the Admin tab.
+- **Forgotten passwords**: the sign-in page's **Forgot password?** option directs students to contact the admin. Admins can reset passwords on the Admin tab.
 - **Backups**: Supabase dashboard, **Database**, **Backups**, or export tables from the Table Editor.
 - **Updating the app**: change files in `web/`, merge to `main`, and Pages redeploys automatically. Database changes: re-run `supabase/schema.sql` (safe to re-run).

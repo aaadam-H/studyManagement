@@ -1,6 +1,6 @@
 import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.14';
 import { parseStudentId } from './student-id.js?v=1.1.16';
-import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.0';
+import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.2';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
@@ -13,8 +13,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.0';
-const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
+const APP_VERSION = '1.2.2';
+const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -220,6 +220,7 @@ document.addEventListener('input', (e) => {
 
 /* ---------------- auth screens ---------------- */
 function authScreen(mode = 'login', opts = {}) {
+  if (mode === 'forgot') return forgotPasswordScreen(opts);
   const reg = mode === 'register';
   const reason = !reg && opts.reason ? `<div class="card auth-reason"><b>Login required</b><p>${esc(opts.reason)}</p></div>` : '';
   const maintenanceNote = maintenanceGate ? `<div class="card auth-reason"><b>StudyHub is under maintenance</b><p>Student access is temporarily paused. Admins can sign in to manage the maintenance window.</p></div>` : '';
@@ -232,7 +233,7 @@ function authScreen(mode = 'login', opts = {}) {
     <label>Password ${reg ? '<span class="req">*</span> (min 8 characters)' : ''}</label><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">
     <label class="remember"><input type="checkbox" name="remember" ${remembered() ? 'checked' : ''}> Remember me <span class="mute">(untick on a shared computer)</span></label>
     <div id="msg"></div><p><button>${reg ? 'Register' : 'Log in'}</button></p>
-    ${maintenanceGate ? '' : `<p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>`}
+    ${maintenanceGate ? '' : `<p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>${reg ? '' : '<p class="mute"><a href="#" id="forgot-password">Forgot password?</a></p>'}`}
   </form>
   ${reg || maintenanceGate ? '' : installHintHtml()}
   ${reg || maintenanceGate ? '' : `<section class="card auth-video" aria-labelledby="demo-title"><div class="video-head"><div><h3 id="demo-title">See StudyHub in action</h3><p class="mute">Upload your registration slip once, then StudyHub builds your weekly timetable automatically.</p></div><span class="tag">Demo</span></div>
@@ -257,6 +258,8 @@ function authScreen(mode = 'login', opts = {}) {
   if (sw2) sw2.onclick = (e) => { e.preventDefault(); authScreen('register'); };
   const sw = document.getElementById('sw');
   if (sw) sw.onclick = (e) => { e.preventDefault(); authScreen(reg ? 'login' : 'register'); };
+  const forgot = document.getElementById('forgot-password');
+  if (forgot) forgot.onclick = (e) => { e.preventDefault(); authScreen('forgot'); };
   document.getElementById('f').onsubmit = async (e) => {
     e.preventDefault();
     const msg = document.getElementById('msg');
@@ -279,6 +282,17 @@ function authScreen(mode = 'login', opts = {}) {
       await boot();
     } catch (err) { flash(msg, err.message); }
   };
+}
+
+function forgotPasswordScreen(opts = {}) {
+  $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">Forgot your password?</p>
+    ${opts.reason ? `<div class="card auth-reason"><p>${esc(opts.reason)}</p></div>` : ''}
+    <section class="card auth-reason"><h2>Ask an admin to reset it</h2>
+      <p>Password reset by email is not available yet. Contact the StudyHub admin with your student ID, and they can reset your password.</p>
+      <p><a class="btn" href="https://wa.me/aaadam_h" target="_blank" rel="noopener noreferrer">Contact admin on WhatsApp</a></p>
+      <p><button type="button" class="ghost" id="forgot-back">Back to log in</button></p>
+    </section>${FOOTER}</div>`;
+  document.getElementById('forgot-back').onclick = () => authScreen('login');
 }
 
 /* ---------------- shell ---------------- */
@@ -663,7 +677,7 @@ async function pgFeedback(m) {
       <span class="tag ${f.status === 'resolved' ? 'done' : ''}">${f.status === 'resolved' ? 'Resolved' : 'Received'}</span></div>
     <p class="mute">${esc(new Date(f.created_at).toLocaleString())}</p><p class="fb-msg">${esc(f.message)}</p>
     ${f.admin_reply ? `<div class="fb-answer">${unseen.includes(f.id) ? '<span class="tag new">NEW REPLY</span> ' : ''}<b>Reply from admin:</b><p class="fb-msg">${esc(f.admin_reply)}</p></div>` : ''}</div>`).join('') || '<p class="mute">You haven\'t sent anything yet.</p>'}`}
-  <p class="mute">Urgent? WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p>`;
+  <p class="mute">Urgent? WhatsApp <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>.</p>`;
   m.innerHTML = html;
   if (unseen.length) q(sb.from('feedback').update({ reply_seen_at: new Date().toISOString() }).in('id', unseen)).then(updateFeedbackBadge).catch(() => {});
   document.getElementById('fbf').onsubmit = async (e) => {
@@ -753,7 +767,7 @@ async function pgWelcome(m) {
       <tr><td><b>Feedback</b></td><td>Send suggestions, report a problem or a bulletin post. Admin replies show up there.</td></tr>
       <tr><td><b>Help</b></td><td>How-tos and answers to common questions. You can run this guide again from there.</td></tr>
       ${isAdmin() ? '<tr><td><b>Admin</b></td><td>Load the timetable and academic calendar, manage users. The Dashboard shows an admin setup checklist.</td></tr>' : ''}</table>
-      <p>Need help? WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p></div>`;
+      <p>Need help? WhatsApp <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>.</p></div>`;
   }
   m.innerHTML = head + body + nav();
   const go = (d) => () => { wStep = Math.max(0, Math.min(steps.length - 1, wStep + d)); pgWelcome(m); window.scrollTo(0, 0); };
@@ -813,7 +827,7 @@ async function pgHelp(m) {
     ['How do I report a problem or a post?', 'Use the <b>Feedback</b> page, or the <b>Report</b> link under any bulletin post. Only admins can read it, and their reply appears on your Feedback page (the menu shows a badge when there is a new reply).'],
     ['Can I put StudyHub on my phone like an app?', `Yes. ${INSTALL_STEPS} StudyHub then gets its own icon and opens full screen.`],
     ['Where do I see my exam dates?', 'Upload your <b>examination slip</b> PDF on the <b>Exams</b> page. Your exams then show there with a countdown, on the Dashboard and in the Calendar. Subjects without a date on the slip are listed too: check the final exam schedule for those.'],
-    ['I forgot my password', 'Ask an admin to reset it (WhatsApp below), then change it in <b>Profile</b>.'],
+    ['I forgot my password', 'On the sign-in page, choose <b>Forgot password?</b> and contact the StudyHub admin on WhatsApp. The admin can reset your password.'],
     ['What do "Lecture week" and the holidays come from?', 'The university\'s academic calendar, uploaded by the admin. See <b>Academic Calendar</b>.'],
   ];
   m.innerHTML = `<h2>Help</h2><p class="sub">How to use StudyHub.</p>
@@ -826,7 +840,7 @@ async function pgHelp(m) {
     <li><b>Users:</b> Admin, View, to see a student's subjects and timetable, edit details, reset a password or delete an account.</li>
     <li><b>Feedback:</b> the red number next to Feedback shows new items. Reply, set the status, and delete reported posts from there.</li>
     <li>The full setup guide is SETUP.md in the GitHub repository.</li></ul></div>` : ''}
-  <div class="card"><h3>Still stuck?</h3><p>WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p></div>`;
+  <div class="card"><h3>Still stuck?</h3><p>WhatsApp <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>.</p></div>`;
   document.getElementById('rg').onclick = () => { wStep = 0; location.hash = '#/welcome'; };
 }
 
