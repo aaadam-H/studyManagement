@@ -1,5 +1,6 @@
 import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.14';
 import { parseStudentId } from './student-id.js?v=1.1.16';
+import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.1.22';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
@@ -12,7 +13,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.21';
+const APP_VERSION = '1.1.22';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -20,6 +21,8 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
 };
 const loginEmail = (sid) => `${sid.trim().toLowerCase()}@${CFG.LOGIN_EMAIL_DOMAIN || 'students.studyhub.app'}`;
+const MAINTENANCE_KEYS = ['maintenance_enabled', 'maintenance_message', 'maintenance_start', 'maintenance_end'];
+let maintenanceCache = null, maintenanceCacheAt = 0, maintenanceTimer = null, maintenanceGate = false;
 
 if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('YOUR-PROJECT') || !window.supabase) {
   $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><div class="card"><b>Not connected yet.</b>
@@ -60,6 +63,51 @@ async function myCourses(uid = me.id) {
 async function getSettings() {
   const rows = await q(sb.from('settings').select('*'));
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+async function getMaintenance(force = false) {
+  if (!force && maintenanceCache && Date.now() - maintenanceCacheAt < 5000) return maintenanceCache;
+  try {
+    const rows = await q(sb.from('settings').select('key,value').in('key', MAINTENANCE_KEYS));
+    maintenanceCache = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  } catch (error) {
+    console.warn('Could not load maintenance status:', error.message);
+    maintenanceCache ||= {};
+  }
+  maintenanceCacheAt = Date.now();
+  return maintenanceCache;
+}
+function armMaintenanceTimer(settings) {
+  clearTimeout(maintenanceTimer);
+  const now = Date.now();
+  const start = settings.maintenance_enabled === 'true' && settings.maintenance_start ? Date.parse(settings.maintenance_start) : null;
+  const end = settings.maintenance_enabled === 'true' && settings.maintenance_end ? Date.parse(settings.maintenance_end) : null;
+  const active = maintenanceIsActive(settings, now);
+  const next = !active && start > now ? start : active ? end : null;
+  const delay = next !== null && Number.isFinite(next) ? Math.min(Math.max(next - now + 100, 100), 30000) : 30000;
+  maintenanceTimer = setTimeout(async () => {
+    const wasBlocked = maintenanceGate;
+    maintenanceCacheAt = 0;
+    const latest = await getMaintenance(true);
+    const blocked = maintenanceIsActive(latest) && me?.role !== 'admin';
+    const showingMaintenance = !!document.querySelector('.maintenance-screen');
+    maintenanceGate = blocked;
+    if ((blocked && !showingMaintenance && (!document.querySelector('.auth') || !wasBlocked)) || (!blocked && showingMaintenance)) render();
+    else armMaintenanceTimer(latest);
+  }, delay);
+}
+function maintenanceScreen() {
+  const settings = maintenanceCache || {};
+  const start = settings.maintenance_start ? new Date(settings.maintenance_start).toLocaleString() : '';
+  const end = settings.maintenance_end ? new Date(settings.maintenance_end).toLocaleString() : '';
+  const active = maintenanceIsActive(settings);
+  $app.innerHTML = `<main class="maintenance-screen"><section class="maintenance-notice" role="alert"><span class="tag">Scheduled maintenance</span><h1>StudyHub is temporarily unavailable</h1>
+    <p>${esc(settings.maintenance_message || 'We are carrying out scheduled maintenance. Please check back soon.')}</p>
+    ${start || end ? `<p class="maintenance-time">${start ? `${active ? 'Started' : 'Starts'} ${esc(start)}` : 'In progress'}${end ? ` · Access returns after ${esc(end)}` : ''}</p>` : ''}
+    ${me ? '<button type="button" id="maintenance-logout" class="ghost">Log out</button>' : '<button type="button" id="maintenance-admin-login">Admin sign in</button>'}</section></main>`;
+  const logout = document.getElementById('maintenance-logout');
+  if (logout) logout.onclick = async () => { await sb.auth.signOut(); };
+  const login = document.getElementById('maintenance-admin-login');
+  if (login) login.onclick = () => authScreen('login');
 }
 // Build a student's week:
 //  - each subject uses the group chosen for it (mix-and-match), else the student's main group,
@@ -174,8 +222,9 @@ document.addEventListener('input', (e) => {
 function authScreen(mode = 'login', opts = {}) {
   const reg = mode === 'register';
   const reason = !reg && opts.reason ? `<div class="card auth-reason"><b>Login required</b><p>${esc(opts.reason)}</p></div>` : '';
+  const maintenanceNote = maintenanceGate ? `<div class="card auth-reason"><b>StudyHub is under maintenance</b><p>Student access is temporarily paused. Admins can sign in to manage the maintenance window.</p></div>` : '';
   $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">${reg ? 'Create your student account' : 'Log in to your study planner'}</p>
-  ${reason}
+  ${maintenanceNote}${reason}
   <form class="card" id="f">
     <label>Student ID (matric no.) <span class="req">*</span></label><input name="student_id" required inputmode="numeric" pattern="[0-9]{9}" minlength="9" maxlength="9" placeholder="YYPPP####" title="Enter the 9-digit ID in YYPPP#### format" autocomplete="username" value="${reg ? '' : esc(store.get('last_sid') || '')}">
     ${reg ? '<p class="mute sid-format">9 digits: 2-digit entry year + 3-digit programme code + 4-digit university number. Example format: 231021306.</p>' : ''}
@@ -183,30 +232,31 @@ function authScreen(mode = 'login', opts = {}) {
     <label>Password ${reg ? '<span class="req">*</span> (min 8 characters)' : ''}</label><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? 'new-password' : 'current-password'}">
     <label class="remember"><input type="checkbox" name="remember" ${remembered() ? 'checked' : ''}> Remember me <span class="mute">(untick on a shared computer)</span></label>
     <div id="msg"></div><p><button>${reg ? 'Register' : 'Log in'}</button></p>
-    <p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>
+    ${maintenanceGate ? '' : `<p class="mute">${reg ? 'Have an account? <a href="#" id="sw">Log in</a>' : 'New here? <a href="#" id="sw">Register</a>'}</p>`}
   </form>
-  ${reg ? '' : installHintHtml()}
-  ${reg ? '' : `<section class="card auth-video" aria-labelledby="demo-title"><div class="video-head"><div><h3 id="demo-title">See StudyHub in action</h3><p class="mute">Upload your registration slip once, then StudyHub builds your weekly timetable automatically.</p></div><span class="tag">Demo</span></div>
+  ${reg || maintenanceGate ? '' : installHintHtml()}
+  ${reg || maintenanceGate ? '' : `<section class="card auth-video" aria-labelledby="demo-title"><div class="video-head"><div><h3 id="demo-title">See StudyHub in action</h3><p class="mute">Upload your registration slip once, then StudyHub builds your weekly timetable automatically.</p></div><span class="tag">Demo</span></div>
     <video controls muted autoplay loop playsinline preload="metadata" poster="demo/studyhub-demo-poster.png" aria-label="StudyHub feature demo">
       <source src="demo/studyhub-demo.mp4" type="video/mp4">
       Your browser does not support video. <a href="demo/studyhub-demo.mp4">Open the demo video</a>.
     </video>
     <div class="video-points"><span>1. Upload registration slip</span><span>2. Courses extracted</span><span>3. Timetable generated</span></div></section>`}
-  ${reg ? '' : `<div class="card intro"><b>What you can do with StudyHub</b><ul>
+  ${reg || maintenanceGate ? '' : `<div class="card intro"><b>What you can do with StudyHub</b><ul>
     <li>Upload your course registration slip and get your weekly timetable automatically</li>
     <li>Mix and match groups, and add your own classes</li>
     <li>Put your timetable in Google Calendar or Apple Calendar, skipping breaks and public holidays</li>
     <li>Follow a shared bulletin for assignments and notices, grouped by subject</li>
     <li>Track your assignments, grades and notes; see the academic calendar and current lecture week</li></ul>
     <p class="mute">New here? <a href="#" id="sw2">Create an account</a>; a short setup guide walks you through the rest.</p></div>`}
-  ${reg ? '' : `<div class="auth-guest"><a class="btn ghost-link" href="#/">Continue as guest (view only)</a><span class="mute">Browse the timetable, bulletin and academic calendar without an account.</span></div>`}
+  ${reg || maintenanceGate ? '' : `<div class="auth-guest"><a class="btn ghost-link" href="#/">Continue as guest (view only)</a><span class="mute">Browse the timetable, bulletin and academic calendar without an account.</span></div>`}
   ${FOOTER}</div>`;
   const f = document.getElementById('f');
   if (!reg && f.student_id.value) f.password.focus();
   wireInstallHint($app);
   const sw2 = document.getElementById('sw2');
   if (sw2) sw2.onclick = (e) => { e.preventDefault(); authScreen('register'); };
-  document.getElementById('sw').onclick = (e) => { e.preventDefault(); authScreen(reg ? 'login' : 'register'); };
+  const sw = document.getElementById('sw');
+  if (sw) sw.onclick = (e) => { e.preventDefault(); authScreen(reg ? 'login' : 'register'); };
   document.getElementById('f').onsubmit = async (e) => {
     e.preventDefault();
     const msg = document.getElementById('msg');
@@ -261,12 +311,20 @@ const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, va
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
   me = session ? await q(sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()) : null;
+  const maintenance = await getMaintenance();
+  armMaintenanceTimer(maintenance);
+  maintenanceGate = maintenanceIsActive(maintenance) && me?.role !== 'admin';
+  if (maintenanceGate) return maintenanceScreen();
   if (!me) return authScreen();
   if (location.hash !== '#/') history.replaceState(null, '', '#/');
   render();
 }
 async function render() {
   let key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
+  const maintenance = await getMaintenance();
+  armMaintenanceTimer(maintenance);
+  maintenanceGate = maintenanceIsActive(maintenance) && me?.role !== 'admin';
+  if (maintenanceGate) return maintenanceScreen();
   if (!me) {
     if (!PUBLIC_ROUTES[key]) {
       return authScreen('login', { reason: `Please log in to open ${PROTECTED_LABELS[key] || 'this page'}.` });
@@ -278,7 +336,7 @@ async function render() {
         <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu</button></div>
       <div class="nav-links" id="nav-links">
         ${navigationHtml(PUBLIC_ROUTES, key)}
-        <div class="who guest-who"><b>Guest mode</b><br><span>View only</span><br><a class="login-link" href="#/courses">Log in</a></div>
+        <div class="who guest-who"><b>Guest mode</b><br><span>View only</span><br><a class="login-link" href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">UniMAP e-Learning</a><br><a class="login-link" href="#/courses">Log in</a></div>
       </div></nav>
       <div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
     const nav = document.getElementById('nav');
@@ -302,9 +360,12 @@ async function render() {
       <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu<span class="menu-dot" id="menu-dot" hidden></span></button></div>
     <div class="nav-links" id="nav-links">
     ${navigationHtml(routes, key)}
-    <div class="who"><span class="who-name">${esc(me.name)}</span><br>${esc(me.student_id)}${studentPreview ? ' (student preview)' : me.role === 'admin' ? ' (admin)' : ''}<br>${me.role === 'admin' ? `<button type="button" id="student-preview" class="sm ghost">${studentPreview ? 'Exit student view' : 'View as student'}</button><br>` : ''}<a href="#" id="lo" class="logout">Log out</a></div></div></nav>
-    <div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
-  document.getElementById('lo').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); me = null; authScreen(); };
+    </div></nav>
+    <div class="content"><main id="main">Loading...</main>${FOOTER}</div>
+    <aside class="account-rail" aria-label="Account"><section class="account-panel"><h2>Personal info</h2><b class="account-name">${esc(me.name)}</b><span class="account-id">${esc(me.student_id)}${me.role === 'admin' ? ' · Admin' : ''}</span>
+      <a class="account-link" href="#/profile">Personal info</a><a class="account-link external" href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">UniMAP e-Learning</a>
+      ${me.role === 'admin' ? `<button type="button" id="student-preview" class="sm ghost account-preview">${studentPreview ? 'Exit student view' : 'View as student'}</button>` : ''}<button type="button" id="lo" class="ghost account-logout">Log out</button></section></aside></div>`;
+  document.getElementById('lo').onclick = async () => { await sb.auth.signOut(); };
   const previewBtn = document.getElementById('student-preview');
   if (previewBtn) previewBtn.onclick = () => {
     studentPreview = !studentPreview;
@@ -322,7 +383,7 @@ async function render() {
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 window.addEventListener('hashchange', render);
-sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; authScreen(); } });
+sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; setTimeout(render, 0); } });
 
 /* ---------------- "add to home screen" hint ---------------- */
 // Android Chrome/Edge offer a one-tap install (beforeinstallprompt); iPhone and other browsers get written steps.
@@ -1403,6 +1464,11 @@ async function pgAdmin(m) {
   if (sub[2] === 'user' && sub[3]) return pgAdminUser(m, sub[3]);
   const [s, users, acNow, count] = await Promise.all([getSettings(), q(sb.rpc('admin_users')), getAcademic(), sb.from('classes').select('id', { count: 'exact', head: true }).then((r) => r.count || 0)]);
   m.innerHTML = `<h2>Admin</h2><p class="sub">Manage the timetable source and users.</p>
+  <form class="card" id="maintenance-form"><h3>Maintenance notice</h3><p class="mute">Show a full-screen notice and pause student and guest access during this window. Admins can still sign in and manage the system.</p>
+  <label class="remember"><input type="checkbox" name="maintenance_enabled" ${s.maintenance_enabled === 'true' ? 'checked' : ''}> Enable maintenance window</label>
+  <div class="row"><div><label>Starts (your local time)</label><input type="datetime-local" name="maintenance_start" value="${esc(toLocalDateTime(s.maintenance_start))}"></div><div><label>Ends (your local time)</label><input type="datetime-local" name="maintenance_end" value="${esc(toLocalDateTime(s.maintenance_end))}"></div></div>
+  <label>Notice message</label><textarea name="maintenance_message" rows="3" maxlength="600" placeholder="StudyHub is temporarily unavailable while we carry out maintenance.">${esc(s.maintenance_message || '')}</textarea><div id="maintenance-msg"></div>
+  <p class="mute">Status: ${maintenanceIsActive(s) ? 'Active' : s.maintenance_enabled === 'true' && s.maintenance_start && Date.parse(s.maintenance_start) > Date.now() ? 'Scheduled' : 'Off'}</p><button>Save maintenance settings</button></form>
   <div class="card"><h3>Timetable link</h3><p class="mute">Paste the university timetable page link, then sync. Every group on the page is loaded; each student picks their own group (and can mix and match) on the Timetable page. When a new semester's timetable comes out, paste the new link and sync again.</p>
   <form id="tl"><input name="timetable_url" type="url" value="${esc(s.timetable_url)}" required><div class="row" style="margin-top:8px"><button>Save link</button><button type="button" class="ghost" id="sync">Save &amp; sync now</button></div></form>
   <p class="mute">${count} class entries loaded${s.timetable_synced_at ? ' · last sync ' + esc(new Date(s.timetable_synced_at).toLocaleString()) : ''}</p>
@@ -1422,6 +1488,28 @@ async function pgAdmin(m) {
   <div id="semm"></div><p><button>Save dates</button></p></form>
   <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<table class="users-tbl"><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
   ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td class="u-id">${esc(u.student_id)}</td><td class="u-name"><b class="u-nm">${esc(u.name)}</b><br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td data-l="Programme">${esc(u.program || '')}</td><td data-l="Courses">${u.courses}</td><td data-l="Role">${esc(u.role)}</td><td class="u-acts"><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Reset password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></td></tr>`).join('')}</table></div>`;
+  document.getElementById('maintenance-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget, values = Object.fromEntries(new FormData(form));
+    const enabled = form.elements.maintenance_enabled.checked;
+    const msg = document.getElementById('maintenance-msg');
+    if (enabled && (!values.maintenance_start || !values.maintenance_end || !values.maintenance_message?.trim())) return flash(msg, 'Enter a start time, end time, and notice message.');
+    const start = values.maintenance_start ? new Date(values.maintenance_start).getTime() : null;
+    const end = values.maintenance_end ? new Date(values.maintenance_end).getTime() : null;
+    if (enabled && (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end <= Date.now())) return flash(msg, 'The end must be in the future and after the start.');
+    try {
+      await q(sb.from('settings').upsert([
+        { key: 'maintenance_enabled', value: String(enabled) },
+        { key: 'maintenance_message', value: values.maintenance_message?.trim() || '' },
+        { key: 'maintenance_start', value: start === null ? '' : new Date(start).toISOString() },
+        { key: 'maintenance_end', value: end === null ? '' : new Date(end).toISOString() },
+      ]));
+      maintenanceCacheAt = 0;
+      const saved = await getMaintenance(true);
+      armMaintenanceTimer(saved);
+      flash(msg, 'Maintenance settings saved.', 1);
+    } catch (error) { flash(msg, error.message); }
+  };
   const tm = document.getElementById('tm');
   const saveLink = async () => {
     const url = document.querySelector('#tl [name=timetable_url]').value.trim();

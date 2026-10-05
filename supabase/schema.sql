@@ -263,6 +263,10 @@ grant update (name, email, phone, program, faculty, year, semester, subgroup, on
 -- settings, courses, classes: everyone logged in can read; only admins write
 drop policy if exists settings_read on public.settings;
 create policy settings_read on public.settings for select to authenticated using (true);
+drop policy if exists settings_maintenance_anon_read on public.settings;
+create policy settings_maintenance_anon_read on public.settings for select to anon
+  using (key in ('maintenance_enabled', 'maintenance_message', 'maintenance_start', 'maintenance_end'));
+grant select on public.settings to anon;
 drop policy if exists settings_admin on public.settings;
 create policy settings_admin on public.settings for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists courses_read on public.courses;

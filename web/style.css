@@ -60,6 +60,10 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;
   .nav-group-title{margin:7px 12px 2px}
   .who{display:block;margin-top:8px;border-top:1px solid var(--line);padding:12px}
   .who .logout{display:inline-block;margin-top:8px;padding:8px 14px;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--bad)}
+  .account-rail{flex:0 0 auto;border-left:0;border-top:1px solid var(--line);padding:14px}
+  .account-panel{position:static}
+  .maintenance-screen{padding:16px}
+  .maintenance-notice{padding:18px}
   main{padding:14px}
 }
 @media(prefers-reduced-motion:reduce){.burger,.burger::before,.burger::after{transition:none}}
@@ -68,10 +72,24 @@ html,body{max-width:100%;overflow-x:hidden}
 .card{max-width:100%;overflow-x:auto}
 .content{max-width:100%}
 input,select,textarea{min-width:0;max-width:100%}
-input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;min-height:40px;display:block}
+input[type=date],input[type=time],input[type=datetime-local]{-webkit-appearance:none;appearance:none;min-height:40px;display:block}
 @media(max-width:760px){.row>*{min-width:120px}table th,table td{white-space:normal}}
 .content{flex:1;min-width:0;display:flex;flex-direction:column}
 .content main{flex:1}
+.account-rail{flex:0 0 250px;padding:24px 16px 24px 0;border-left:1px solid var(--line)}
+.account-panel{position:sticky;top:16px;display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+.account-panel h2{font-size:16px;margin:0 0 3px}
+.account-name{overflow-wrap:anywhere}
+.account-id{font-size:13px;color:var(--mute);overflow-wrap:anywhere}
+.account-link{display:block;text-decoration:none;padding:7px 0}
+.account-link.external{border-top:1px solid var(--line);padding-top:12px}
+.account-preview,.account-logout{width:100%;margin-top:5px}
+.account-logout{color:var(--bad)!important}
+.maintenance-screen{max-width:none;min-height:100vh;display:grid;place-items:center;padding:24px}
+.maintenance-notice{width:min(100%,600px);background:var(--card);border:1px solid var(--line);border-top:4px solid var(--warn);border-radius:10px;padding:24px}
+.maintenance-notice h1{font-size:26px;margin:12px 0 6px}
+.maintenance-notice p{margin:8px 0}
+.maintenance-time{font-size:13px;color:var(--mute)}
 footer{border-top:1px solid var(--line);padding:14px 24px;font-size:13px;color:var(--mute);text-align:center}
 .auth footer{border:0;padding:8px 0}
 .req{color:var(--bad)}
@@ -198,6 +216,7 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .auth{max-width:760px}.auth-video{padding:12px;overflow:hidden}.video-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:4px 4px 10px}.video-head h3{margin:0 0 2px}.video-head p{margin:0}.auth-video video{display:block;width:100%;aspect-ratio:16/9;background:#080b14;border-radius:8px}.video-points{display:flex;gap:8px;flex-wrap:wrap;padding:10px 4px 2px}.video-points span{font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:99px;color:var(--mute)}.auth-guest{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;margin:14px 0 2px}.auth-reason{max-width:100%;border-left:4px solid var(--brand);padding:12px 14px}.auth-reason p{margin:4px 0 0;color:var(--mute)}
 .admin-data-tbl{min-width:900px}.table-scroll{max-width:100%;overflow-x:auto}
 @media(min-width:761px){.shell>nav{position:relative;inset:auto;height:auto;min-height:100vh;flex:0 0 220px}.shell>.content{margin-left:0}.guest-shell>nav{width:210px;flex-basis:210px}.guest-shell>.content{margin-left:0}}
+@media(min-width:761px) and (max-width:1000px){.shell{flex-wrap:wrap}.shell>.content{flex:1 1 calc(100% - 220px)}.shell>.account-rail{order:3;flex:1 1 100%;padding:14px;border-left:0;border-top:1px solid var(--line)}.account-panel{position:static;display:grid;grid-template-columns:1fr 1fr;align-items:center}.account-panel h2,.account-link.external{border-top:0;padding-top:0}}
 @media(max-width:760px){.shell>nav{position:relative;inset:auto;height:auto;min-height:0}.shell>.content{margin-left:0}}
 .users-tbl .u-nm{font-weight:inherit}
 /* phones: each user becomes a small card with its buttons visible (no sideways scrolling) */
@@ -256,3 +275,4 @@ footer .ver{margin-top:4px;color:var(--mute)}
 @media(max-width:600px){.wallpaper-card{grid-template-columns:minmax(0,1fr)}.wallpaper-card canvas{grid-column:1;grid-row:auto;width:min(100%,240px);margin:4px auto}.wallpaper-card>div:first-child,.wallpaper-card>.btns{grid-column:1}}
 .week-focus{margin:12px 0 20px}.week-focus-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:0 0 10px}.week-focus-head h3{font-size:20px;margin:0}.week-focus .card.day{padding:14px 16px}.timetable-source{margin:0 0 18px}.timetable-settings{border-top:1px solid var(--line);padding-top:14px;margin:18px 0}.timetable-settings>summary{cursor:pointer;color:var(--brand);font-weight:600;padding:8px 0}.timetable-settings[open]>summary{margin-bottom:12px}
 .changelog-entry h3{display:inline;font-size:18px;margin:0 8px}.changelog-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.changelog-head>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.changelog-body{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0}.changelog-edit{margin-top:12px}.changelog-edit summary{cursor:pointer}
+@media(max-width:760px){.account-rail{flex:0 0 auto;border-left:0;border-top:1px solid var(--line);padding:14px}.account-panel{position:static}.maintenance-screen{padding:16px}.maintenance-notice{padding:18px}}
