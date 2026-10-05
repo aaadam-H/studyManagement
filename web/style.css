@@ -375,6 +375,16 @@ button,.btn,input,select,textarea{border-radius:7px}
 .calendar-part-list .btn{flex:0 0 auto}
 @media(max-width:420px){.calendar-part-list>div{align-items:flex-start;flex-direction:column}.calendar-part-list .btn{width:100%}}
 
+@media(max-width:600px){
+  .registered-subjects,.registered-subjects tbody{display:block;width:100%}
+  .registered-subjects thead{display:none}
+  .registered-subjects tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .registered-subjects td{display:block;min-width:0;padding:0;border:0;white-space:normal;overflow-wrap:break-word;word-break:normal}
+  .registered-subjects td::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--mute);font-size:11px;font-weight:600}
+  .registered-subjects td[data-label="Name"]{grid-column:1/-1;font-weight:600}
+  .registered-subjects td[data-label="Code"]{font-weight:600;white-space:nowrap}
+}
+
 .wallpaper-recommendation{font-size:12px;margin:8px 0}
 .wallpaper-custom-colors{margin-top:8px;padding-top:6px;border-top:1px solid var(--line)}
 .wallpaper-custom-colors>summary{font-weight:600}
