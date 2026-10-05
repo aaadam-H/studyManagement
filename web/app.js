@@ -12,7 +12,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.19';
+const APP_VERSION = '1.1.20';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -36,6 +36,8 @@ const authStorage = {
 };
 const sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { storage: authStorage, persistSession: true, autoRefreshToken: true } });
 let me = null;
+let studentPreview = false;
+const isAdmin = () => me?.role === 'admin' && !studentPreview;
 
 // Run a Supabase query, throw a readable error on failure
 async function q(promise) {
@@ -132,7 +134,7 @@ async function getBulletin() {
   // updates show "ADMIN" to students; admins also see the real poster
   const who = {};
   const updIds = [...new Set(posts.filter((p) => p.kind === 'update').map((p) => p.user_id))];
-  if (me.role === 'admin' && updIds.length) for (const u of await q(sb.from('profiles').select('id,name,student_id').in('id', updIds))) who[u.id] = `${u.name} (${u.student_id})`;
+  if (isAdmin() && updIds.length) for (const u of await q(sb.from('profiles').select('id,name,student_id').in('id', updIds))) who[u.id] = `${u.name} (${u.student_id})`;
   return { posts: posts.map((p) => ({ ...p, course_name: names[p.course_code], real_author: who[p.user_id] })), allCourses: all, mine: mine.map((c) => c.code) };
 }
 
@@ -219,7 +221,7 @@ function authScreen(mode = 'login', opts = {}) {
         const { data, error } = await sb.auth.signUp({ email: loginEmail(normalizedId), password, options: { data: { student_id: normalizedId, ...info } } });
         if (error) throw new Error(/already registered/i.test(error.message) ? 'That student ID is already registered' : error.message);
         if (!data.session) return flash(msg, 'Account created, but Supabase is asking for email confirmation. The admin must turn off "Confirm email" (see SETUP.md).');
-        location.hash = '#/welcome';
+        location.hash = '#/';
       } else {
         const { error } = await sb.auth.signInWithPassword({ email: loginEmail(student_id), password });
         if (error) throw new Error(/invalid/i.test(error.message) ? 'Wrong student ID or password' : error.message);
@@ -237,11 +239,30 @@ const ROUTES = {
 const PUBLIC_ROUTES = {
   '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
 };
+const NAV_GROUPS = [
+  ['Overview', ['']],
+  ['Academics', ['timetable', 'exams', 'courses', 'grades']],
+  ['Planning', ['assignments', 'calendar', 'academic', 'notes']],
+  ['Community', ['bulletin', 'feedback', 'changelog']],
+  ['Account & Help', ['profile', 'help']],
+  ['Administration', ['admin', 'admin-subjects', 'admin-registrations', 'admin-changelog']],
+];
+function navigationHtml(routes, key) {
+  return NAV_GROUPS.map(([label, keys]) => {
+    const links = keys.filter((route) => routes[route]);
+    if (!links.length) return '';
+    return `<section class="nav-group"><h2 class="nav-group-title">${label}</h2>${links.map((route) => {
+      const badge = route === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : route === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : '';
+      return `<a href="#/${route}" class="${route === key ? 'on' : ''}">${routes[route][0]}${badge}</a>`;
+    }).join('')}</section>`;
+  }).join('');
+}
 const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
   me = session ? await q(sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()) : null;
   if (!me) return authScreen();
+  if (location.hash !== '#/') history.replaceState(null, '', '#/');
   render();
 }
 async function render() {
@@ -256,7 +277,7 @@ async function render() {
         <span class="nav-page">${esc(pageTitle)}</span>
         <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu</button></div>
       <div class="nav-links" id="nav-links">
-        ${Object.entries(PUBLIC_ROUTES).map(([route, [title]]) => `<a href="#/${route}" class="${route === key ? 'on' : ''}">${title}</a>`).join('')}
+        ${navigationHtml(PUBLIC_ROUTES, key)}
         <div class="who guest-who"><b>Guest mode</b><br><span>View only</span><br><a class="login-link" href="#/courses">Log in</a></div>
       </div></nav>
       <div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
@@ -269,9 +290,7 @@ async function render() {
     catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
     return;
   }
-  // first visit: send new students through the setup guide (they can still open Help)
-  if (needsOnboarding() && !['welcome', 'help', 'feedback'].includes(key)) { history.replaceState(null, '', '#/welcome'); key = 'welcome'; }
-  const routes = { ...ROUTES, ...(me.role === 'admin' ? {
+  const routes = { ...ROUTES, ...(isAdmin() ? {
     admin: ['Admin', pgAdmin], 'admin-subjects': ['Subject Search', pgAdminSubjects], 'admin-registrations': ['Student Registrations', pgAdminRegistrations], 'admin-changelog': ['Manage changelog', pgAdminChangelog],
   } : {}) };
   const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
@@ -282,10 +301,16 @@ async function render() {
       <span class="nav-page">${esc(pageTitle)}</span>
       <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu<span class="menu-dot" id="menu-dot" hidden></span></button></div>
     <div class="nav-links" id="nav-links">
-    ${Object.entries(routes).map(([k, [t]]) => `<a href="#/${k}" class="${k === key ? 'on' : ''}">${t}${k === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : k === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : ''}</a>`).join('')}
-    <div class="who"><span class="who-name">${esc(me.name)}</span><br>${esc(me.student_id)}${me.role === 'admin' ? ' (admin)' : ''}<br><a href="#" id="lo" class="logout">Log out</a></div></div></nav>
+    ${navigationHtml(routes, key)}
+    <div class="who"><span class="who-name">${esc(me.name)}</span><br>${esc(me.student_id)}${studentPreview ? ' (student preview)' : me.role === 'admin' ? ' (admin)' : ''}<br>${me.role === 'admin' ? `<button type="button" id="student-preview" class="sm ghost">${studentPreview ? 'Exit student view' : 'View as student'}</button><br>` : ''}<a href="#" id="lo" class="logout">Log out</a></div></div></nav>
     <div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
   document.getElementById('lo').onclick = async (e) => { e.preventDefault(); await sb.auth.signOut(); me = null; authScreen(); };
+  const previewBtn = document.getElementById('student-preview');
+  if (previewBtn) previewBtn.onclick = () => {
+    studentPreview = !studentPreview;
+    if (studentPreview && !ROUTES[key]) location.hash = '#/';
+    else render();
+  };
   const nav = document.getElementById('nav'), menuBtn = document.getElementById('menu-btn');
   const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
   menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
@@ -495,13 +520,13 @@ async function updateFeedbackBadge() {
   if (!el || !me) return;
   try {
     const qy = sb.from('feedback').select('id', { count: 'exact', head: true });
-    const { count, error } = me.role === 'admin' ? await qy.eq('status', 'new')
+    const { count, error } = isAdmin() ? await qy.eq('status', 'new')
       : await qy.eq('user_id', me.id).not('admin_reply', 'is', null).is('reply_seen_at', null);
     if (error) throw error;
     el.hidden = !count;
     el.textContent = count > 99 ? '99+' : String(count || '');
-    el.title = me.role === 'admin' ? `${count} new feedback / reports` : `${count} new repl${count === 1 ? 'y' : 'ies'}`;
-    document.title = count && me.role === 'admin' ? `(${count}) StudyHub` : 'StudyHub';
+    el.title = isAdmin() ? `${count} new feedback / reports` : `${count} new repl${count === 1 ? 'y' : 'ies'}`;
+    document.title = count && isAdmin() ? `(${count}) StudyHub` : 'StudyHub';
   } catch { el.hidden = true; }
   syncMenuDot();
 }
@@ -539,7 +564,7 @@ async function pgFeedback(m) {
     reportId ? q(sb.from('posts').select('id,title,course_code,author_name').eq('id', reportId).maybeSingle()) : null,
   ]);
   let html = '';
-  if (me.role === 'admin') {
+  if (isAdmin()) {
     const all = await q(sb.from('feedback').select('*, profiles(name, student_id)').order('created_at', { ascending: false }).limit(300));
     const newIds = all.filter((f) => f.status === 'new').map((f) => f.id);
     const shown = all.filter((f) => fbFilter === 'all' || (fbFilter === 'active' ? f.status !== 'resolved' : f.status === fbFilter));
@@ -572,7 +597,7 @@ async function pgFeedback(m) {
     <label>Subject</label><input name="subject" required maxlength="200" value="${reported ? esc('Report: ' + reported.title).slice(0, 200) : ''}">
     <label>Details</label><textarea name="message" rows="4" required maxlength="4000" placeholder="${reported ? 'What is wrong with this post?' : 'What happened, or what would you like?'}"></textarea>
     <div id="fbm"></div><p><button>Send</button></p></form>
-  ${me.role === 'admin' ? '' : `<h3>Your messages</h3>${mine.map((f) => `<div class="card fb ${unseen.includes(f.id) ? 'fb-new' : ''}">
+  ${isAdmin() ? '' : `<h3>Your messages</h3>${mine.map((f) => `<div class="card fb ${unseen.includes(f.id) ? 'fb-new' : ''}">
     <div class="fb-head"><span class="tag">${esc(FB_KIND[f.kind] || f.kind)}</span> <b>${esc(f.subject)}</b>
       <span class="tag ${f.status === 'resolved' ? 'done' : ''}">${f.status === 'resolved' ? 'Resolved' : 'Received'}</span></div>
     <p class="mute">${esc(new Date(f.created_at).toLocaleString())}</p><p class="fb-msg">${esc(f.message)}</p>
@@ -607,11 +632,6 @@ async function pgFeedback(m) {
 }
 
 /* ---------------- onboarding: setup guide, checklists, help ---------------- */
-function needsOnboarding() {
-  if (!me) return false;
-  if ('onboarded_at' in me) return !me.onboarded_at && !store.get('sh_onboarded_' + me.id);
-  return false; // database not updated yet: don't force the guide
-}
 async function finishOnboarding() {
   store.set('sh_onboarded_' + me.id, '1');
   if ('onboarded_at' in me) {
@@ -671,7 +691,7 @@ async function pgWelcome(m) {
       <tr><td><b>Profile</b></td><td>Your details and password.</td></tr>
       <tr><td><b>Feedback</b></td><td>Send suggestions, report a problem or a bulletin post. Admin replies show up there.</td></tr>
       <tr><td><b>Help</b></td><td>How-tos and answers to common questions. You can run this guide again from there.</td></tr>
-      ${me.role === 'admin' ? '<tr><td><b>Admin</b></td><td>Load the timetable and academic calendar, manage users. The Dashboard shows an admin setup checklist.</td></tr>' : ''}</table>
+      ${isAdmin() ? '<tr><td><b>Admin</b></td><td>Load the timetable and academic calendar, manage users. The Dashboard shows an admin setup checklist.</td></tr>' : ''}</table>
       <p>Need help? WhatsApp <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>.</p></div>`;
   }
   m.innerHTML = head + body + nav();
@@ -706,7 +726,7 @@ async function gettingStartedHtml(tt, ac) {
       <ul class="check">${doneItems.map((item) => `<li class="${item.complete ? 'ok' : ''}"><span>${item.complete ? '&#10003;' : '&#9675;'} ${item.complete ? esc(item.title) : `<a href="${item.href}">${esc(item.title)}</a>`}</span>${item.complete && !item.manual ? '' : `<button type="button" class="sm ghost" data-gs-toggle="${item.id}">${item.manual ? 'Undo' : 'Mark as completed'}</button>`}</li>`).join('')}</ul>
       <p class="mute">New to StudyHub? See <a href="#/help">Help</a> or <a href="#/welcome">run the setup guide</a>.</p></div>`;
   }
-  if (me.role === 'admin') {
+  if (isAdmin()) {
     const s = await getSettings();
     const items = [
       [!!ac.periods.length, 'Upload the academic calendar PDF'],
@@ -739,7 +759,7 @@ async function pgHelp(m) {
   <div class="card"><h3>What StudyHub does</h3><div class="feat">${FEATURES.map(([t, d]) => `<div><b>${t}</b><p class="mute">${d}</p></div>`).join('')}</div>
     <p><button type="button" id="rg">Run the setup guide again</button></p></div>
   <div class="card"><h3>Questions</h3>${qa.map(([qq, a]) => `<details class="qa"><summary>${qq}</summary><p>${a}</p></details>`).join('')}</div>
-  ${me?.role === 'admin' ? `<div class="card"><h3>For admins</h3><ul>
+  ${isAdmin() ? `<div class="card"><h3>For admins</h3><ul>
     <li><b>Each academic year:</b> Admin, Academic calendar, upload the new Kalendar Akademik PDF.</li>
     <li><b>Each semester:</b> Admin, paste the new timetable link, Save &amp; sync now (or upload the saved page).</li>
     <li><b>Users:</b> Admin, View, to see a student's subjects and timetable, edit details, reset a password or delete an account.</li>
@@ -923,7 +943,7 @@ async function pgTimetable(m) {
   const courseOpts = tt.courses.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('');
   const timetableHtml = `<h2>Timetable</h2><p class="sub">Built from your registered subjects and the university timetable. Mix-and-match groups are fine.</p>
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
-  ${noData ? `<div class="card">The university timetable has not been loaded yet. ${me.role === 'admin' ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
+  ${noData ? `<div class="card">The university timetable has not been loaded yet. ${isAdmin() ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
   <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}</span></div>${weekHtml(tt)}</section>
   <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Save a 9:16 phone wallpaper with your selected groups and added classes.</p></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Portrait preview of your weekly timetable"></canvas><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? '1080 × 1920 PNG' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   <p class="mute timetable-source">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>
@@ -1141,19 +1161,19 @@ async function pgBulletin(m) {
   const groups = {};
   const UPD = '~updates'; // admin updates get their own section at the top
   for (const p of list) (groups[p.kind === 'update' ? UPD : p.course_code || ''] ||= []).push(p);
-  const postable = me.role === 'admin' ? b.allCourses : b.allCourses.filter((c) => b.mine.includes(c.code));
+  const postable = isAdmin() ? b.allCourses : b.allCourses.filter((c) => b.mine.includes(c.code));
   m.innerHTML = `<h2>Bulletin</h2><p class="sub">Shared board for assignments and important notices, grouped by subject.</p>
-  <div class="card"><form id="np"><div class="row"><div><label>Subject</label><select name="course_code" ${me.role === 'admin' ? '' : 'required'}>${me.role === 'admin' ? '<option value="">General (all students)</option>' : '<option value="" disabled selected>Choose subject</option>'}${postable.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('')}</select></div>
-  <div><label>Type</label><select name="kind"><option value="info">Info</option><option value="assignment">Assignment</option><option value="exam">Exam / test</option><option value="urgent">Urgent</option>${me.role === 'admin' ? '<option value="update">Update (Dashboard, everyone)</option>' : ''}</select></div>
+  <div class="card"><form id="np"><div class="row"><div><label>Subject</label><select name="course_code" ${isAdmin() ? '' : 'required'}>${isAdmin() ? '<option value="">General (all students)</option>' : '<option value="" disabled selected>Choose subject</option>'}${postable.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('')}</select></div>
+  <div><label>Type</label><select name="kind"><option value="info">Info</option><option value="assignment">Assignment</option><option value="exam">Exam / test</option><option value="urgent">Urgent</option>${isAdmin() ? '<option value="update">Update (Dashboard, everyone)</option>' : ''}</select></div>
   <div><label>Due date (optional)</label><input type="date" name="due_date"></div></div>
   <label>Title</label><input name="title" required maxlength="200"><label>Details</label><textarea name="body" rows="3" maxlength="4000"></textarea><div id="pmsg"></div><p><button>Post</button></p></form>
-  ${postable.length || me.role === 'admin' ? '' : '<p class="mute">Register your courses to post to their boards.</p>'}</div>
+  ${postable.length || isAdmin() ? '' : '<p class="mute">Register your courses to post to their boards.</p>'}</div>
   ${filterBar('Search posts, subjects, authors...', `<select id="bf" data-plain><option value="mine" ${filter === 'mine' ? 'selected' : ''}>My subjects</option><option value="all" ${filter === 'all' ? 'selected' : ''}>All subjects</option></select>${qSelect('kind', [['', 'All types'], ['info', 'Info'], ['assignment', 'Assignments'], ['exam', 'Exams / tests'], ['urgent', 'Urgent'], ['update', 'Updates']])}`)}
   ${muted.length ? `<p class="mute muted-list">Muted (not counted in the menu badge): ${muted.map((c) => `<span class="tag">${esc(c)} <a href="#" data-unmute="${esc(c)}" title="Unmute">×</a></span>`).join(' ')}</p>` : ''}
   ${Object.keys(groups).sort((a, b) => (b === UPD) - (a === UPD) || muted.includes(a) - muted.includes(b) || a.localeCompare(b)).map((code) => {
     const off = muted.includes(code), fresh = groups[code].filter(isNew).length;
     const posts = groups[code].map((p) => `<div class="post qi" data-kind="${esc(p.kind)}"><h4>${isNew(p) ? '<span class="tag new">NEW</span> ' : ''}<span class="tag ${esc(p.kind)}">${esc(p.kind)}</span> ${esc(p.title)} ${p.due_date ? `<span class="tag">due ${esc(p.due_date)}</span>` : ''}</h4>${p.body ? `<p>${esc(p.body)}</p>` : ''}
-  <span class="mute">${esc(p.author_name)}${p.author_sid ? ` (${esc(p.author_sid)})` : ''}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''} · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || me.role === 'admin' ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('');
+  <span class="mute">${esc(p.author_name)}${p.author_sid ? ` (${esc(p.author_sid)})` : ''}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''} · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || isAdmin() ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('');
     return `<div class="card qg${off ? ' muted' : ''}"><div class="gh"><h3>${code === UPD ? 'Updates' : code ? esc(code) + ' <span class="mute">' + esc(groups[code][0].course_name || '') + '</span>' : 'General'}${fresh && !off ? ` <span class="tag new">${fresh} new</span>` : ''}</h3>
       ${code && code !== UPD ? `<button class="sm ghost" data-${off ? 'unmute' : 'mute'}="${esc(code)}" title="${off ? 'Count new posts again' : 'Stop counting new posts from this subject'}">${off ? 'Unmute' : 'Mute'}</button>` : ''}</div>
       ${off ? `<details><summary>Muted · show ${groups[code].length} post${groups[code].length === 1 ? '' : 's'}</summary>${posts}</details>` : posts}</div>`;
@@ -1327,7 +1347,7 @@ async function pgAcademic(m) {
   const sems = [...new Set(ac.periods.map((p) => p.semester))];
   const weeksOf = (p) => Math.round((Date.parse(p.end_date) - Date.parse(p.start_date)) / 864e5 + 1) / 7;
   m.innerHTML = `<h2>Academic Calendar</h2><p class="sub">Semester dates, breaks and public holidays from the university's academic calendar.</p>
-  ${!ac.periods.length && !ac.events.length ? `<div class="card">The academic calendar has not been uploaded yet. ${me?.role === 'admin' ? '<a href="#/admin">Upload it in Admin</a>.' : 'Please check back after the admin uploads it.'}</div>` : ''}
+  ${!ac.periods.length && !ac.events.length ? `<div class="card">The academic calendar has not been uploaded yet. ${isAdmin() ? '<a href="#/admin">Upload it in Admin</a>.' : 'Please check back after the admin uploads it.'}</div>` : ''}
   ${st ? `<div class="card now"><b>Now:</b> ${esc(statusText(st))}</div>` : ''}
   ${longHolidayCard(ac, t)}
   ${sems.map((sem) => `<div class="card"><h3>${esc(sem)}</h3><table><tr><th>Period</th><th>From</th><th>To</th><th>Weeks</th></tr>
