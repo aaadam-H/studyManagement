@@ -581,10 +581,13 @@ begin
       'DTEND;TZID=Asia/Kuala_Lumpur:' || to_char(first, 'YYYYMMDD') || 'T' || replace(r.end_time, ':', '') || '00',
       -- UNTIL is in UTC: 23:59:59 Malaysia time on the last day
       'RRULE:FREQ=WEEKLY;UNTIL=' || to_char(w.last_day, 'YYYYMMDD') || 'T155959Z',
-      ics_fold('SUMMARY:' || ics_text(coalesce(r.course_code || ' ', '') || coalesce(r.course_name, '') || coalesce(' (' || initcap(r.kind) || ')', ''))),
+      ics_fold('SUMMARY:' || ics_text(coalesce(nullif(r.course_name, ''), r.course_code, 'Class'))),
       case when coalesce(r.venue, '') <> '' then ics_fold('LOCATION:' || ics_text(r.venue)) end,
-      ics_fold('DESCRIPTION:' || ics_text(concat_ws(E'\n', 'Lecturer: ' || r.lecturer,
-        case when r.custom then 'Added by you in StudyHub' else 'Group: ' || r.section end)))], null);
+      ics_fold('DESCRIPTION:' || ics_text(concat_ws(E'\n',
+        case when coalesce(r.course_code, '') <> '' then 'Course code: ' || r.course_code end,
+        case when coalesce(r.kind, '') <> '' then 'Class type: ' || initcap(r.kind) end,
+        case when coalesce(r.lecturer, '') <> '' then 'Lecturer: ' || r.lecturer end,
+        case when r.custom then 'Added by you in StudyHub' else case when coalesce(r.section, '') <> '' then 'Group: ' || r.section end end)))], null);
     if ex is not null then lines := lines || ics_fold('EXDATE;TZID=Asia/Kuala_Lumpur:' || ex); end if;
     lines := lines || 'END:VEVENT'::text;
   end loop;

@@ -10,7 +10,11 @@ export const categories = {
 function classCategory(event) {
   const unfolded = event.replace(/\r?\n[ \t]/g, '');
   const summary = unfolded.match(/^SUMMARY:(.*)$/m)?.[1] ?? '';
-  const kind = summary.match(/\(([^()]*)\)\s*$/)?.[1]?.trim().toLowerCase() ?? '';
+  const description = unfolded.match(/^DESCRIPTION:(.*)$/m)?.[1] ?? '';
+  const typeLine = description.split(/\\n/i).find((line) => /^Class type:/i.test(line));
+  const kind = typeLine?.replace(/^Class type:\s*/i, '').trim().toLowerCase()
+    || summary.match(/\(([^()]*)\)\s*$/)?.[1]?.trim().toLowerCase()
+    || '';
   if (/^(lab|laboratory|makmal|practical|p)$/.test(kind)) return 'lab';
   if (/^(tutorial|t)$/.test(kind)) return 'tutorial';
   if (/^(lecture|kuliah|l)$/.test(kind)) return 'lecture';

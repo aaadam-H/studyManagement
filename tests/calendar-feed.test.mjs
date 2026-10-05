@@ -20,4 +20,14 @@ for (const [category, expected, courseCode] of [['lecture', 'Intro', 'IMJ10001']
 }
 assert.equal((filterCalendar(feed, 'lecture').match(/BEGIN:VEVENT/g) || []).length, 1);
 assert.throws(() => filterCalendar(feed, 'all'), /specific calendar category/);
+
+const namedFeed = [
+  'BEGIN:VCALENDAR', 'VERSION:2.0', 'X-WR-CALNAME:StudyHub timetable',
+  'BEGIN:VEVENT', 'SUMMARY:Communication Systems', 'DESCRIPTION:Course code: IMJ31103\\nClass type: Lecture', 'DTSTART;TZID=Asia/Kuala_Lumpur:20261005T090000', 'END:VEVENT',
+  'BEGIN:VEVENT', 'SUMMARY:Digital Signal Processing', 'DESCRIPTION:Course code: IMJ31303\\nClass type: Lab', 'DTSTART;TZID=Asia/Kuala_Lumpur:20261005T110000', 'END:VEVENT',
+  'END:VCALENDAR', '',
+].join('\r\n');
+assert.match(filterCalendar(namedFeed, 'lecture'), /SUMMARY:Communication Systems/);
+assert.doesNotMatch(filterCalendar(namedFeed, 'lecture'), /SUMMARY:Digital Signal Processing/);
+assert.match(filterCalendar(namedFeed, 'lab'), /SUMMARY:Digital Signal Processing/);
 console.log('ALL CALENDAR FEED TESTS PASSED');

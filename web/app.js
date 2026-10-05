@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.9';
+import { createZip } from './zip.js?v=1.2.10';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.9';
+const APP_VERSION = '1.2.10';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -316,11 +316,10 @@ function navigationHtml(routes, key) {
   return NAV_GROUPS.map(([label, keys]) => {
     const links = keys.filter((route) => routes[route]);
     if (!links.length) return '';
-    const active = keys.includes(key);
-    return `<details class="nav-group" name="studyhub-navigation" ${active ? 'open' : ''}><summary class="nav-group-title">${label}</summary><div class="nav-group-links">${links.map((route) => {
+    return `<section class="nav-group"><h2 class="nav-group-title">${label}</h2><div class="nav-group-links">${links.map((route) => {
       const badge = route === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : route === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : '';
       return `<a href="#/${route}" class="${route === key ? 'on' : ''}">${routes[route][0]}${badge}</a>`;
-    }).join('')}</div></details>`;
+    }).join('')}</div></section>`;
   }).join('');
 }
 const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
