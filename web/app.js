@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.11';
+import { createZip } from './zip.js?v=1.2.12';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.11';
+const APP_VERSION = '1.2.12';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -930,6 +930,19 @@ async function pgPublicBulletin(m) {
 
 /* ---------------- timetable ---------------- */
 const groupLabel = (g) => `${prettyGroup(g)} (${g})`;
+const WALLPAPER_SIZES = {
+  '720x1280': [720, 1280],
+  '1080x1920': [1080, 1920],
+  '1440x2560': [1440, 2560],
+  '1170x2532': [1170, 2532],
+};
+const WALLPAPER_DEFAULTS = { theme: 'dark', size: '1080x1920', showTitle: true, showGroup: true, showCode: true, showType: true, showVenue: true, showLecturer: false, showDayCounts: false };
+function readWallpaperOptions() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('studyhub.wallpaper-options.v1') || '{}');
+    return { ...WALLPAPER_DEFAULTS, ...saved, size: WALLPAPER_SIZES[saved.size] ? saved.size : WALLPAPER_DEFAULTS.size, theme: saved.theme === 'light' ? 'light' : 'dark' };
+  } catch { return { ...WALLPAPER_DEFAULTS }; }
+}
 function weekHtml(tt) {
   let html = '';
   for (let d = 1; d <= 7; d++) {
@@ -945,28 +958,43 @@ function timetableHtml(tt) {
   <table><tr><th>Subject</th><th>Group used</th></tr>${tt.courses.map((c) => `<tr><td>${esc(c.code)} ${esc(c.name || '')}</td><td>${c.chosen ? esc(groupLabel(c.chosen)) : c.section === 'none' ? 'hidden' : '<span class="mute">not set</span>'}</td></tr>`).join('')}</table></div>
   ${weekHtml(tt)}`;
 }
-function drawTimetableWallpaper(canvas, tt) {
+function drawTimetableWallpaper(canvas, tt, options) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  const width = canvas.width, height = canvas.height, margin = 68;
+  const width = canvas.width, height = canvas.height, scale = width / 1080, margin = Math.round(width * 0.063);
+  const themes = {
+    dark: { bg: '#101827', card: '#1a2639', ink: '#e8edfa', mute: '#aeb9d1', accent: '#818cf8', day: '#dbe3f5', subtle: '#8290aa' },
+    light: { bg: '#f4f7fb', card: '#ffffff', ink: '#182433', mute: '#526276', accent: '#4f46e5', day: '#25344a', subtle: '#697b91' },
+  };
+  const colors = themes[options.theme] || themes.dark;
   const classesByDay = Array.from({ length: 7 }, (_, index) => ({ day: index + 1, items: tt.classes.filter((item) => item.day === index + 1) })).filter((day) => day.items.length);
   const roundedRect = (x, y, w, h, r) => {
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
     ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
     ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); ctx.fill();
   };
-  ctx.fillStyle = '#101827'; ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = '#818cf8'; ctx.fillRect(margin, 90, 8, 154);
-  ctx.fillStyle = '#f4f6ff'; ctx.font = '700 54px system-ui, sans-serif'; ctx.fillText('MY WEEKLY', margin + 28, 132);
-  ctx.fillText('TIMETABLE', margin + 28, 194);
-  ctx.fillStyle = '#aeb9d1'; ctx.font = '24px system-ui, sans-serif';
-  ctx.fillText(`${tt.classes.length} CLASSES  ·  ${classesByDay.length} DAYS`, margin + 30, 246);
-  const groupText = tt.main ? groupLabel(tt.main) : '';
-  if (groupText) { ctx.fillStyle = '#aeb9d1'; ctx.font = '20px system-ui, sans-serif'; ctx.fillText(groupText, margin + 30, 282, width - margin * 2 - 30); }
-  let y = groupText ? 330 : 304;
-  const bottom = height - 112;
+  ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, width, height);
+  const showTitle = options.showTitle;
+  let y = margin;
+  if (showTitle) {
+    const titleSize = Math.round(48 * scale);
+    ctx.fillStyle = colors.accent; ctx.fillRect(margin, y, Math.max(5, 8 * scale), 132 * scale);
+    ctx.fillStyle = colors.ink; ctx.font = `700 ${titleSize}px system-ui, sans-serif`;
+    ctx.fillText('MY WEEKLY', margin + 28 * scale, y + 48 * scale);
+    ctx.fillText('TIMETABLE', margin + 28 * scale, y + 104 * scale);
+    ctx.fillStyle = colors.mute; ctx.font = `${22 * scale}px system-ui, sans-serif`;
+    ctx.fillText(`${tt.classes.length} CLASSES  ·  ${classesByDay.length} DAYS`, margin + 30 * scale, y + 151 * scale);
+    y += 180 * scale;
+  }
+  if (options.showGroup && tt.main) {
+    ctx.fillStyle = colors.mute; ctx.font = `${19 * scale}px system-ui, sans-serif`;
+    ctx.fillText(groupLabel(tt.main), margin, y, width - margin * 2);
+    y += 34 * scale;
+  }
+  y += 10 * scale;
+  const bottom = height - margin;
   const rows = classesByDay.reduce((sum, day) => sum + day.items.length, 0);
-  const rowHeight = Math.max(28, Math.min(78, Math.floor((bottom - y - classesByDay.length * 54) / Math.max(rows, 1))));
+  const dayHeaderHeight = 38 * scale, rowHeight = Math.max(31 * scale, Math.min(82 * scale, (bottom - y - classesByDay.length * dayHeaderHeight) / Math.max(rows, 1)));
   const palette = { lec: '#6578ef', lab: '#18a879', tut: '#0798ad', other: '#c37d35' };
   const fitText = (text, maxWidth) => {
     let result = String(text || 'Class');
@@ -974,33 +1002,40 @@ function drawTimetableWallpaper(canvas, tt) {
     return result;
   };
   for (const day of classesByDay) {
-    ctx.fillStyle = '#dbe3f5'; ctx.font = '700 25px system-ui, sans-serif'; ctx.fillText(DAYN[day.day].toUpperCase(), margin, y + 30);
-    ctx.fillStyle = '#8290aa'; ctx.font = '18px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillText(`${day.items.length}`, width - margin, y + 30); ctx.textAlign = 'left';
-    y += 42;
+    ctx.fillStyle = colors.day; ctx.font = `700 ${23 * scale}px system-ui, sans-serif`; ctx.fillText(DAYN[day.day].toUpperCase(), margin, y + 27 * scale);
+    if (options.showDayCounts) { ctx.fillStyle = colors.subtle; ctx.font = `${17 * scale}px system-ui, sans-serif`; ctx.textAlign = 'right'; ctx.fillText(`${day.items.length}`, width - margin, y + 26 * scale); ctx.textAlign = 'left'; }
+    y += dayHeaderHeight;
     for (const item of day.items) {
-      const cardY = y, cardH = rowHeight - 7;
-      ctx.fillStyle = '#1a2639'; roundedRect(margin, cardY, width - margin * 2, cardH, 12);
+      const cardY = y, cardH = Math.max(25 * scale, rowHeight - 6 * scale);
+      ctx.fillStyle = colors.card; roundedRect(margin, cardY, width - margin * 2, cardH, 12 * scale);
       const type = (item.kind || '').toUpperCase();
       const color = /LAB/.test(type) ? palette.lab : /TUT/.test(type) ? palette.tut : /LECT/.test(type) ? palette.lec : palette.other;
       ctx.fillStyle = color; roundedRect(margin, cardY, 7, cardH, 4);
-      const compact = cardH < 62;
-      const fontSize = compact ? Math.max(12, Math.floor(cardH * 0.45)) : 19;
-      ctx.fillStyle = '#e8edfa'; ctx.font = `600 ${compact ? fontSize : 19}px system-ui, sans-serif`;
-      const timeX = margin + 24, textX = margin + 220, textWidth = width - margin - textX - 22;
-      const textY = compact ? cardY + Math.max(fontSize + 3, cardH - 7) : cardY + 27;
+      const compact = cardH < 58 * scale;
+      const fontSize = compact ? Math.max(12 * scale, Math.floor(cardH * 0.42)) : 19 * scale;
+      ctx.fillStyle = colors.ink; ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+      const timeX = margin + 22 * scale, textX = margin + 220 * scale, textWidth = width - margin - textX - 22 * scale;
+      const textY = compact ? cardY + Math.max(fontSize + 3 * scale, cardH - 7 * scale) : cardY + 27 * scale;
       ctx.fillText(`${item.start_time}–${item.end_time}`, timeX, textY);
       ctx.fillText(fitText(item.course_name || item.title || 'Class', textWidth), textX, textY);
       if (!compact) {
-        ctx.fillStyle = '#aeb9d1'; ctx.font = '16px system-ui, sans-serif';
-        const info = [item.course_code, type, item.venue].filter(Boolean).join('  ·  ');
-        ctx.fillText(fitText(info, textWidth), textX, cardY + 52);
+        const details = [
+          options.showCode && item.course_code,
+          options.showType && type,
+          options.showVenue && item.venue,
+          options.showLecturer && item.lecturer,
+        ].filter(Boolean);
+        if (details.length) {
+          ctx.fillStyle = colors.mute; ctx.font = `${15 * scale}px system-ui, sans-serif`;
+          ctx.fillText(fitText(details.join('  ·  '), textWidth), textX, cardY + 51 * scale);
+        }
       }
       y += rowHeight;
     }
-    y += 5;
+    y += 5 * scale;
   }
-  ctx.fillStyle = '#8290aa'; ctx.font = '18px system-ui, sans-serif';
-  ctx.fillText('STUDYHUB  ·  WEEKLY SCHEDULE', margin, height - 54);
+  ctx.fillStyle = colors.subtle; ctx.font = `${16 * scale}px system-ui, sans-serif`;
+  ctx.fillText('STUDYHUB  ·  WEEKLY SCHEDULE', margin, height - margin / 2);
 }
 async function pgTimetable(m) {
   const [tt, ac] = await Promise.all([getTimetable(), getAcademic()]);
@@ -1029,7 +1064,12 @@ async function pgTimetable(m) {
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
   ${noData ? `<div class="card">The university timetable has not been loaded yet. ${isAdmin() ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
   <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}</span></div>${weekHtml(tt)}</section>
-  <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Save a 9:16 phone wallpaper with your selected groups and added classes.</p></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Portrait preview of your weekly timetable"></canvas><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? '1080 × 1920 PNG' : 'Choose groups or add classes to build your week first.'}</span></div></div>
+  <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Choose a look and what to include. The preview updates as you change options.</p></div><div class="wallpaper-controls">
+    <div class="wallpaper-selects"><label>Theme<select id="wallpaper-theme"><option value="dark">Dark</option><option value="light">Light</option></select></label><label>Image size<select id="wallpaper-size">${Object.keys(WALLPAPER_SIZES).map((size) => `<option value="${size}">${size.replace('x', ' × ')} px</option>`).join('')}</select></label></div>
+    <fieldset class="wallpaper-toggles"><legend>Show on wallpaper</legend>
+      ${[['showTitle','Title and weekly summary'],['showGroup','My group'],['showCode','Subject codes'],['showType','Class type'],['showVenue','Venue'],['showLecturer','Lecturer'],['showDayCounts','Classes per day']].map(([key, label]) => `<label><input type="checkbox" data-wallpaper-option="${key}"> ${label}</label>`).join('')}
+      <p class="mute">Subject names, days and class times are always shown.</p>
+    </fieldset></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Preview of your timetable wallpaper"></canvas><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? '1080 × 1920 px PNG' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   <p class="mute timetable-source">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>
   <details class="timetable-settings"><summary>Groups, classes and calendar settings</summary>
   ${tt.myCourseCount && !noData ? `<div class="card"><h3>Your main group</h3>
@@ -1060,11 +1100,31 @@ async function pgTimetable(m) {
   // Sanitize the complete template before it enters the live document.
   m.replaceChildren(DOMPurify.sanitize(timetableHtml, { RETURN_DOM_FRAGMENT: true }));
   const wallpaper = m.querySelector('#timetable-wallpaper');
-  drawTimetableWallpaper(wallpaper, tt);
+  const wallpaperTheme = m.querySelector('#wallpaper-theme');
+  const wallpaperSize = m.querySelector('#wallpaper-size');
+  const wallpaperToggles = [...m.querySelectorAll('[data-wallpaper-option]')];
+  const wallpaperOptions = readWallpaperOptions();
+  wallpaperTheme.value = wallpaperOptions.theme;
+  wallpaperSize.value = wallpaperOptions.size;
+  wallpaperToggles.forEach((input) => { input.checked = wallpaperOptions[input.dataset.wallpaperOption]; });
+  const currentWallpaperOptions = () => ({ theme: wallpaperTheme.value, size: wallpaperSize.value, ...Object.fromEntries(wallpaperToggles.map((input) => [input.dataset.wallpaperOption, input.checked])) });
+  const refreshWallpaper = () => {
+    const options = currentWallpaperOptions();
+    const [width, height] = WALLPAPER_SIZES[options.size] || WALLPAPER_SIZES[WALLPAPER_DEFAULTS.size];
+    wallpaper.width = width; wallpaper.height = height; wallpaper.style.aspectRatio = `${width} / ${height}`;
+    drawTimetableWallpaper(wallpaper, tt, options);
+    const message = m.querySelector('#wallpaper-msg');
+    if (message) message.textContent = `${width} × ${height} px PNG`;
+    try { localStorage.setItem('studyhub.wallpaper-options.v1', JSON.stringify(options)); } catch {}
+  };
+  wallpaperTheme.onchange = refreshWallpaper;
+  wallpaperSize.onchange = refreshWallpaper;
+  wallpaperToggles.forEach((input) => { input.onchange = refreshWallpaper; });
+  refreshWallpaper();
   m.querySelector('#download-wallpaper').onclick = () => wallpaper.toBlob((blob) => {
     if (!blob) return flash(m.querySelector('#wallpaper-msg'), 'Could not create the wallpaper. Please try again.');
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob); link.download = 'studyhub-timetable.png';
+    link.href = URL.createObjectURL(blob); link.download = `studyhub-timetable-${wallpaper.width}x${wallpaper.height}.png`;
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(link.href), 5000);
   }, 'image/png');
@@ -1098,14 +1158,13 @@ function calendarCard(tt, ac) {
   const ua = navigator.userAgent;
   const android = /Android/i.test(ua), ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   const google = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
-  const phoneHelp = android || ios ? `<div class="phone-help">
-    <b>${ios ? 'On iPhone' : 'On Android'}:</b> ${ios ? 'tap <b>Subscribe in Apple Calendar</b> to add it to the iPhone Calendar app. For Google Calendar instead, follow the steps below.' : 'the Google Calendar app can\'t add a calendar from a link, so add it once through the Google Calendar website:'}
-    <ol><li>Tap <b>Copy link</b>.</li>
-      <li>Tap <b>Open "Add by URL"</b>. In Chrome, open the <b>&#8942;</b> menu and tick <b>Desktop site</b>.</li>
-      <li>Paste the link into <b>URL of calendar</b> and tap <b>Add calendar</b>.</li>
-      <li>In the Google Calendar app: <b>&#9776;</b> &rsaquo; <b>Settings</b> &rsaquo; <b>StudyHub timetable</b> &rsaquo; turn <b>Sync</b> on.</li></ol>
-    <div class="btns"><button type="button" class="ghost cpy">Copy link</button>
-      <a class="btn ghost-link" target="_blank" rel="noopener" href="https://calendar.google.com/calendar/r/settings/addbyurl">Open "Add by URL"</a></div></div>` : '';
+  const googlePhoneSteps = `<p>The Google Calendar app cannot subscribe from a link. To use Google Calendar:</p>
+    <ol><li>Tap <b>Copy calendar link</b>.</li><li>Open <b>Add by URL</b> in the Google Calendar website. In Chrome, use <b>&#8942; &rsaquo; Desktop site</b>.</li>
+    <li>Paste the link into <b>URL of calendar</b> and tap <b>Add calendar</b>.</li><li>In the Google Calendar app, open <b>&#9776; &rsaquo; Settings &rsaquo; StudyHub timetable</b> and turn <b>Sync</b> on.</li></ol>
+    <div class="btns"><button type="button" class="ghost cpy">Copy calendar link</button><a class="btn ghost-link" target="_blank" rel="noopener" href="https://calendar.google.com/calendar/r/settings/addbyurl">Open Google Calendar: Add by URL</a></div>`;
+  const phoneHelp = ios ? `<div class="phone-help"><b>To use Apple Calendar:</b> tap <b>Subscribe in Apple Calendar</b> above, then confirm <b>Subscribe</b> or <b>Add</b> when your device asks. You do not need to copy a link or open Google Calendar.
+    <details class="calendar-alt-help"><summary>Using Google Calendar instead?</summary>${googlePhoneSteps}</details></div>`
+    : android ? `<div class="phone-help"><b>To use Google Calendar on Android:</b> add the subscription once on the Google Calendar website, then enable sync in the app.${googlePhoneSteps}</div>` : '';
   return `<div class="card"><h3>Add to your calendar app</h3>
   <p class="mute">Your classes repeat weekly: ${esc(range)}. Times are Malaysia time.</p>
   <label for="calendar-mode">Calendar format</label><select id="calendar-mode"><option value="all">All-in-one calendar</option><option value="separate">Separate calendars</option><option value="package">Download package (.zip)</option></select>
@@ -1120,9 +1179,9 @@ function calendarCard(tt, ac) {
   <div id="icm" aria-live="polite"></div>
   <details><summary>Live link and help</summary>
     <p class="mute">Subscribing keeps your calendar updated when your timetable changes (Google refreshes every few hours, Apple about every 6 hours). The download is a one-time copy.</p>
-    <p class="mute"><b>Google on a computer:</b> "Connect Google Calendar", or Google Calendar, "Other calendars" <b>+</b>, "From URL", paste the link below. It then also shows on your phone (turn on Sync for it in the phone app).<br>
+    ${ios ? `<p class="mute"><b>Apple Calendar:</b> use <b>Subscribe in Apple Calendar</b> above and confirm the subscription. No copy/paste is needed.<br><b>Google Calendar instead?</b> Use the Google Calendar website's <b>Other calendars &rsaquo; From URL</b> option; on a phone, enable <b>Desktop site</b> first, then turn on calendar sync in the app.</p>` : `<p class="mute"><b>Google on a computer:</b> "Connect Google Calendar", or Google Calendar, "Other calendars" <b>+</b>, "From URL", paste the link below. It then also shows on your phone (turn on Sync for it in the phone app).<br>
     <b>Google on a phone:</b> the app can't add links; use the website in desktop mode as described above.<br>
-    <b>iPhone:</b> "Subscribe in Apple Calendar", or Settings, Calendar, Accounts, Add Account, Other, Add Subscribed Calendar, paste the link.</p>
+    <b>iPhone:</b> tap "Subscribe in Apple Calendar" and confirm the subscription.</p>`}
     <div class="row"><input id="feed" readonly value="${esc(https)}"><button type="button" class="ghost cpy" id="cpy">Copy link</button></div>
     <p class="mute">Keep this link private: anyone with it can see your timetable. <a href="#" id="rst">Make a new link</a> (the old one stops working).</p>
   </details></div>`;
