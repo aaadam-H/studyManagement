@@ -1,6 +1,6 @@
 {
   "name": "studyhub",
-  "version": "1.1.22",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Dev-only: tests for the StudyHub parsers. The app itself is static files in web/ plus Supabase.",
