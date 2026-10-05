@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.8';
+import { createZip } from './zip.js?v=1.2.9';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.8';
+const APP_VERSION = '1.2.9';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -316,10 +316,11 @@ function navigationHtml(routes, key) {
   return NAV_GROUPS.map(([label, keys]) => {
     const links = keys.filter((route) => routes[route]);
     if (!links.length) return '';
-    return `<section class="nav-group"><h2 class="nav-group-title">${label}</h2>${links.map((route) => {
+    const active = keys.includes(key);
+    return `<details class="nav-group" name="studyhub-navigation" ${active ? 'open' : ''}><summary class="nav-group-title">${label}</summary><div class="nav-group-links">${links.map((route) => {
       const badge = route === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : route === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : '';
       return `<a href="#/${route}" class="${route === key ? 'on' : ''}">${routes[route][0]}${badge}</a>`;
-    }).join('')}</section>`;
+    }).join('')}</div></details>`;
   }).join('');
 }
 const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
@@ -1136,12 +1137,18 @@ function wireCalendarCard(m) {
     if (!isIOS || !isInstalled()) return;
     event.preventDefault();
     const url = link.dataset.feedUrl;
-    msg.innerHTML = `<div class="phone-help" role="status"><b>Finish adding this calendar in iPhone Settings</b><ol><li>Tap <b>Copy calendar link</b> below.</li><li>Open Settings &rsaquo; Apps &rsaquo; Calendar &rsaquo; Calendar Accounts &rsaquo; Add Account &rsaquo; Other &rsaquo; Add Subscribed Calendar.</li><li>Paste the link and tap <b>Next</b>, then <b>Save</b>.</li></ol><div class="row"><input id="subscribe-url" readonly value="${esc(url)}"><button type="button" id="copy-subscribe-url">Copy calendar link</button></div><span id="subscribe-copy-status" class="mute" aria-live="polite"></span><p class="mute">Settings labels can vary slightly by iOS version. This calendar stays subscribed and updates automatically.</p></div>`;
+    const calendarName = link.closest('.calendar-part-list > div')?.querySelector('b')?.textContent || 'selected';
+    msg.innerHTML = `<section class="ios-subscribe-guide" aria-labelledby="ios-subscribe-title"><h3 id="ios-subscribe-title">Add ${esc(calendarName)} to iPhone Calendar</h3><p class="ios-guide-intro">Follow these steps once. The calendar will then stay subscribed and update automatically.</p>
+      <div class="ios-guide-step"><span class="ios-step-number">1</span><div><h4>Copy the calendar link</h4><p>Tap this button:</p><button type="button" id="copy-subscribe-url">Copy ${esc(calendarName)} link</button><span id="subscribe-copy-status" class="ios-copy-status" aria-live="polite"></span><details><summary>Copy the link manually</summary><input id="subscribe-url" readonly value="${esc(url)}"></details></div></div>
+      <div class="ios-guide-step"><span class="ios-step-number">2</span><div><h4>Open iPhone Settings</h4><p>Tap these items in order:</p><div class="ios-tap-path"><b>Apps</b><span>›</span><b>Calendar</b><span>›</span><b>Calendar Accounts</b><span>›</span><b>Add Account</b><span>›</span><b>Other</b><span>›</span><b>Add Subscribed Calendar</b></div><p class="mute">On older iOS versions, start at <b>Settings &rsaquo; Calendar &rsaquo; Accounts</b>.</p></div></div>
+      <div class="ios-guide-step"><span class="ios-step-number">3</span><div><h4>Paste the link</h4><p>Tap the <b>Server</b> box, paste the link you copied, then tap <b>Next</b> in the top-right corner.</p></div></div>
+      <div class="ios-guide-step"><span class="ios-step-number">4</span><div><h4>Finish subscribing</h4><p>When the calendar details appear, tap <b>Save</b> in the top-right corner.</p></div></div>
+    </section>`;
     document.getElementById('copy-subscribe-url').onclick = async () => {
-      const field = document.getElementById('subscribe-url');
       const status = document.getElementById('subscribe-copy-status');
-      try { await navigator.clipboard.writeText(url); status.textContent = 'Link copied. Paste it into Settings to finish.'; }
-      catch { field.focus(); field.select(); status.textContent = 'Select the link and copy it, then paste it into Settings.'; }
+      const button = document.getElementById('copy-subscribe-url');
+      try { await navigator.clipboard.writeText(url); button.textContent = 'Copied'; status.textContent = 'Now open Settings and continue to step 2.'; }
+      catch { const manual = msg.querySelector('details'); manual.open = true; const field = document.getElementById('subscribe-url'); field.focus(); field.select(); status.textContent = 'The link is selected. Tap Copy, then open Settings and continue to step 2.'; }
     };
     msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }));
