@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.15';
+import { createZip } from './zip.js?v=1.2.17';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.15';
+const APP_VERSION = '1.2.17';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -359,7 +359,7 @@ async function render() {
     const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
     menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
     document.getElementById('nav-links').addEventListener('click', (e) => { if (e.target.closest?.('a[href^="#/"]')) setMenu(false); });
-    try { await fn(document.getElementById('main')); }
+    try { await fn(document.getElementById('main')); prepareMobileTables(document.getElementById('main')); }
     catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
     return;
   }
@@ -401,8 +401,21 @@ async function render() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.classList.contains('open')) { setMenu(false); menuBtn.focus(); } });
   if (key !== 'bulletin') bulletinNewSince = null;
   updateBadges();
-  try { await fn(document.getElementById('main')); }
+  try { await fn(document.getElementById('main')); prepareMobileTables(document.getElementById('main')); }
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+function prepareMobileTables(root) {
+  root.querySelectorAll('table:not(.registered-subjects):not(.subject-groups):not(.users-tbl):not(.admin-data-tbl):not(.cal)').forEach((table) => {
+    if (table.closest('.table-scroll')) return;
+    const header = table.tHead?.rows[0] || [...table.rows].find((row) => row.querySelector('th'));
+    if (!header) return;
+    const labels = [...header.cells].map((cell) => cell.textContent.trim());
+    header.classList.add('mobile-stack-head');
+    table.classList.add('mobile-stack');
+    [...table.rows].filter((row) => row !== header).forEach((row) => [...row.cells].forEach((cell, index) => {
+      if (cell.tagName === 'TD' && labels[index]) cell.dataset.label = labels[index];
+    }));
+  });
 }
 window.addEventListener('hashchange', render);
 sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; setTimeout(render, 0); } });
@@ -1125,7 +1138,7 @@ async function pgTimetable(m) {
       <div><label>Start</label><input type="time" name="start_time" required></div><div><label>End</label><input type="time" name="end_time" required></div></div>
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
       <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
-    ${tt.custom.length ? `<h4>Your added classes</h4><table>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</table>` : ''}</div>
+    ${tt.custom.length ? `<h4>Your added classes</h4><table><thead><tr><th>Day and time</th><th>Subject</th><th>Venue</th><th></th></tr></thead><tbody>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</tbody></table>` : ''}</div>
   ${calendarCard(tt, ac)}
   </details>`;
   // Sanitize the complete template before it enters the live document.
@@ -1347,11 +1360,43 @@ function mountSlipUpload(root, onSaved) {
       const p = parseSlipLines(await pdfToLines(e.target.slip.files[0], true));
       if (!p.courses.length) throw new Error('No courses found. Is this the UniMAP course registration slip?');
       msg.innerHTML = '';
-      root.querySelector('#preview').innerHTML = `<h4>Found on the slip</h4><p>${esc(p.name || '')} · ${esc(p.matric || '')} · ${esc(p.program || '')} · ${esc(p.semester || '')}</p>
-      ${p.matric && p.matric !== me.student_id ? `<div class="err">The matric number on this slip (${esc(p.matric)}) differs from your student ID (${esc(me.student_id)}).</div>` : ''}
-      <table>${p.courses.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit}</td><td>${esc(c.grp)}</td></tr>`).join('')}</table>
-      <p><button id="ok" type="button">Save these ${p.courses.length} courses (replaces current list)</button></p>`;
-      root.querySelector('#ok').onclick = async () => {
+      const preview = root.querySelector('#preview');
+      const heading = document.createElement('h4');
+      heading.textContent = 'Found on the slip';
+      const details = document.createElement('p');
+      details.textContent = [p.name, p.matric, p.program, p.semester].filter(Boolean).join(' · ');
+      preview.replaceChildren(heading, details);
+      if (p.matric && p.matric !== me.student_id) {
+        const warning = document.createElement('div');
+        warning.className = 'err';
+        warning.textContent = `The matric number on this slip (${p.matric}) differs from your student ID (${me.student_id}).`;
+        preview.append(warning);
+      }
+      const table = document.createElement('table');
+      const thead = table.createTHead();
+      const headerRow = thead.insertRow();
+      ['Code', 'Subject', 'Credits', 'Group'].forEach((label) => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        headerRow.append(th);
+      });
+      const tbody = table.createTBody();
+      p.courses.forEach((course) => {
+        const row = tbody.insertRow();
+        [course.code, course.name, course.credit, course.grp].forEach((value) => {
+          const cell = row.insertCell();
+          cell.textContent = String(value ?? '');
+        });
+      });
+      const saveWrap = document.createElement('p');
+      const saveButton = document.createElement('button');
+      saveButton.id = 'ok';
+      saveButton.type = 'button';
+      saveButton.textContent = `Save these ${p.courses.length} courses (replaces current list)`;
+      saveWrap.append(saveButton);
+      preview.append(table, saveWrap);
+      prepareMobileTables(preview);
+      saveButton.onclick = async () => {
         await q(sb.rpc('save_courses', { items: p.courses, replace: true }));
         const patch = {};
         if (p.program && !me.program) patch.program = p.program;
@@ -1513,10 +1558,62 @@ async function pgExams(m) {
       const r = parseExamSlipLines(await pdfToLines(e.target.pdf.files[0]));
       if (!r.exams.length) throw new Error('No exams found. Is this the UniMAP examination slip?');
       msg.innerHTML = '';
-      document.getElementById('expv').innerHTML = `<h4>Found on the slip: ${esc(r.session || '')}${r.index_no ? ' · index number ' + esc(r.index_no) : ''}</h4>
-      ${r.matric && r.matric !== me.student_id ? `<div class="err">The matric number on this slip (${esc(r.matric)}) differs from your student ID (${esc(me.student_id)}).</div>` : ''}
-      ${examTable(r.exams)}<p><button id="exok" type="button">Save ${r.exams.length} subjects${slip ? ' (replaces the current slip)' : ''}</button></p>`;
-      document.getElementById('exok').onclick = async () => {
+      const preview = document.getElementById('expv');
+      preview.replaceChildren();
+      const heading = document.createElement('h4');
+      heading.textContent = `Found on the slip: ${r.session || ''}${r.index_no ? ` · index number ${r.index_no}` : ''}`;
+      preview.append(heading);
+      if (r.matric && r.matric !== me.student_id) {
+        const warning = document.createElement('div');
+        warning.className = 'err';
+        warning.textContent = `The matric number on this slip (${r.matric}) differs from your student ID (${me.student_id}).`;
+        preview.append(warning);
+      }
+      const table = document.createElement('table');
+      const headerRow = table.createTHead().insertRow();
+      ['Date', 'Time', 'Subject', 'Venue', ''].forEach((label) => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        headerRow.append(th);
+      });
+      const body = table.createTBody();
+      sortExams(r.exams).forEach((exam) => {
+        const past = exam.date && daysUntil(exam.date) < 0;
+        const row = body.insertRow();
+        if (past) row.className = 'past';
+        const dateCell = row.insertCell();
+        dateCell.textContent = exam.date ? fmtExamDate(exam.date) : 'Not on slip';
+        if (!exam.date) dateCell.className = 'mute';
+        row.insertCell().textContent = fmtTime(exam.time);
+        const subjectCell = row.insertCell();
+        const code = document.createElement('b');
+        code.textContent = exam.code;
+        subjectCell.append(code, document.createTextNode(` ${exam.name || ''}`));
+        row.insertCell().textContent = exam.venue || '';
+        const countdownCell = row.insertCell();
+        if (exam.date) {
+          const tag = document.createElement('span');
+          tag.className = `tag ${past ? '' : 'exam'}`;
+          tag.textContent = countdown(exam.date);
+          countdownCell.append(tag);
+        }
+      });
+      preview.append(table);
+      if (r.exams.some((exam) => !exam.date)) {
+        const note = document.createElement('p');
+        note.className = 'mute';
+        note.textContent = 'No date on the slip: check the final exam schedule for those subjects.';
+        preview.append(note);
+      }
+      const saveWrap = document.createElement('p');
+      const saveButton = document.createElement('button');
+      saveButton.id = 'exok';
+      saveButton.type = 'button';
+      saveButton.textContent = `Save ${r.exams.length} subjects${slip ? ' (replaces the current slip)' : ''}`;
+      saveWrap.append(saveButton);
+      preview.append(saveWrap);
+      prepareMobileTables(preview);
+      saveButton.onclick = async () => {
         await q(sb.from('exam_slips').upsert({ user_id: me.id, session: r.session, index_no: r.index_no, exams: r.exams, notices: r.notices, uploaded_at: new Date().toISOString() }));
         render();
       };
@@ -1731,13 +1828,67 @@ async function pgAdmin(m) {
     try {
       const r = parseAcademicCalendarLines(await pdfToLines(e.target.pdf.files[0]));
       if (!r.periods.length) throw new Error('No semester weeks found. Is this the UniMAP academic calendar (Kalendar Akademik)?');
-      msg.innerHTML = r.warnings.map((w) => `<div class="err">${esc(w)}</div>`).join('');
-      pv.innerHTML = `<h4>Found: session ${esc(r.session)}</h4><table><tr><th>Semester</th><th>Period</th><th>From</th><th>To</th><th>Weeks</th></tr>
-        ${r.periods.map((p) => `<tr><td>${esc(p.semester)}</td><td>${esc(p.label)}</td><td>${esc(fmtDate(p.start))}</td><td>${esc(fmtDate(p.end))}</td><td>${p.weeks}</td></tr>`).join('')}</table>
-        <h4>Holidays and events</h4><p class="mute">Tick "No classes" for days when classes don't run (public holidays). Untick for info-only items.</p>
-        <table><tr><th>No classes</th><th>Date</th><th>What</th></tr>${r.events.map((ev, i) => `<tr><td><input type="checkbox" style="width:auto" data-ev="${i}" ${ev.no_class ? 'checked' : ''}></td><td>${esc(fmtDate(ev.start))}${ev.end !== ev.start ? ' - ' + esc(fmtDate(ev.end)) : ''}</td><td>${esc(ev.title)}</td></tr>`).join('')}</table>
-        <p class="mute">The short / additional semester is not imported.</p>
-        <p><button id="acs">Save academic calendar (replaces the current one)</button></p>`;
+      msg.replaceChildren(...r.warnings.map((warningText) => {
+        const warning = document.createElement('div');
+        warning.className = 'err';
+        warning.textContent = warningText;
+        return warning;
+      }));
+      pv.replaceChildren();
+      const sessionHeading = document.createElement('h4');
+      sessionHeading.textContent = `Found: session ${r.session}`;
+      pv.append(sessionHeading);
+      const periodsTable = document.createElement('table');
+      const periodsHead = periodsTable.createTHead().insertRow();
+      ['Semester', 'Period', 'From', 'To', 'Weeks'].forEach((label) => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        periodsHead.append(th);
+      });
+      const periodsBody = periodsTable.createTBody();
+      r.periods.forEach((period) => {
+        const row = periodsBody.insertRow();
+        [period.semester, period.label, fmtDate(period.start), fmtDate(period.end), period.weeks].forEach((value) => {
+          row.insertCell().textContent = String(value ?? '');
+        });
+      });
+      pv.append(periodsTable);
+      const eventsHeading = document.createElement('h4');
+      eventsHeading.textContent = 'Holidays and events';
+      const eventsHint = document.createElement('p');
+      eventsHint.className = 'mute';
+      eventsHint.textContent = 'Tick "No classes" for days when classes don\'t run (public holidays). Untick for info-only items.';
+      const eventsTable = document.createElement('table');
+      const eventsHead = eventsTable.createTHead().insertRow();
+      ['No classes', 'Date', 'What'].forEach((label) => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        eventsHead.append(th);
+      });
+      const eventsBody = eventsTable.createTBody();
+      r.events.forEach((event, index) => {
+        const row = eventsBody.insertRow();
+        const checkboxCell = row.insertCell();
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.style.width = 'auto';
+        checkbox.dataset.ev = String(index);
+        checkbox.checked = Boolean(event.no_class);
+        checkboxCell.append(checkbox);
+        const dateCell = row.insertCell();
+        dateCell.textContent = `${fmtDate(event.start)}${event.end !== event.start ? ` - ${fmtDate(event.end)}` : ''}`;
+        row.insertCell().textContent = event.title;
+      });
+      const shortSemesterNote = document.createElement('p');
+      shortSemesterNote.className = 'mute';
+      shortSemesterNote.textContent = 'The short / additional semester is not imported.';
+      const saveWrap = document.createElement('p');
+      const saveButton = document.createElement('button');
+      saveButton.id = 'acs';
+      saveButton.textContent = 'Save academic calendar (replaces the current one)';
+      saveWrap.append(saveButton);
+      pv.append(eventsHeading, eventsHint, eventsTable, shortSemesterNote, saveWrap);
+      prepareMobileTables(pv);
       document.getElementById('acs').onclick = async () => {
         pv.querySelectorAll('[data-ev]').forEach((c) => (r.events[c.dataset.ev].no_class = c.checked));
         try { await q(sb.rpc('admin_save_academic_calendar', { periods: r.periods, events: r.events })); render(); }

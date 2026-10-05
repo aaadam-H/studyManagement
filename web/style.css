@@ -70,9 +70,9 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;
   main{padding:14px}
 }
 @media(prefers-reduced-motion:reduce){.burger,.burger::before,.burger::after{transition:none}}
-/* never let wide content widen the page on phones: tables scroll inside their card, inputs can shrink */
+/* Keep wide content from widening the page; narrow tables are converted to labeled rows. */
 html,body{max-width:100%;overflow-x:hidden}
-.card{max-width:100%;overflow-x:auto}
+.card{max-width:100%;min-width:0}
 .content{max-width:100%}
 input,select,textarea{min-width:0;max-width:100%}
 input[type=date],input[type=time],input[type=datetime-local]{-webkit-appearance:none;appearance:none;min-height:40px;display:block}
@@ -85,7 +85,7 @@ input[type=date],input[type=time],input[type=datetime-local]{-webkit-appearance:
 .account-rail{position:sticky;top:16px;align-self:start;flex:0 0 250px;padding:24px 16px 24px 0;border-left:1px solid var(--line)}
 .account-panel{display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
 .account-panel h2{font-size:16px;margin:0 0 3px}
-.account-name{overflow-wrap:anywhere}
+.account-name{overflow-wrap:break-word}
 .account-id{font-size:13px;color:var(--mute);overflow-wrap:anywhere}
 .account-link{display:block;text-decoration:none;padding:7px 0}
 .account-link.external{border-top:1px solid var(--line);padding-top:12px}
@@ -173,7 +173,7 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
 /* Portal menu floats over nearby content instead of growing the timetable row. */
 .combo-list{position:fixed;z-index:1000;max-height:min(40vh,280px);max-height:min(40dvh,280px);overflow-y:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px;box-shadow:0 8px 24px #0005}
 .group-picker-card{overflow:visible}
-.combo-list .opt{padding:8px 10px;border-radius:6px;cursor:pointer;white-space:normal;overflow-wrap:anywhere}
+.combo-list .opt{padding:8px 10px;border-radius:6px;cursor:pointer;white-space:normal;overflow-wrap:break-word}
 .combo-list .opt.on{font-weight:600}.combo-list .opt.act{background:var(--brand);color:var(--brand-ink)}
 .combo-list .none{padding:6px 10px;color:var(--mute)}
 .clash-note{display:block;color:var(--bad);font-size:12px;font-weight:600;margin-top:3px}
@@ -210,7 +210,7 @@ a.report{font-size:13px;color:var(--mute);margin-left:6px}
   .qbar>input,.qbar>select{flex:1 1 100%;width:100%;min-width:0}
   .qbar .qn{flex:1 1 100%}
   .public-filters>div{flex:1 1 100%;min-width:0}
-  table th,table td{overflow-wrap:anywhere}
+  table th,table td{overflow-wrap:break-word;word-break:normal}
 }
 
 /* buttons: one consistent look (height, alignment, hover/focus states) */
@@ -245,11 +245,14 @@ footer .ver{margin-top:4px;color:var(--mute)}
 /* phones: each user becomes a small card with its buttons visible (no sideways scrolling) */
 @media(max-width:760px){
   .guest-shell nav{width:auto}.public-hero{grid-template-columns:1fr}.public-hero h2{font-size:25px}.public-cta{align-items:flex-start;flex-direction:column}.auth{max-width:100%}
-  .users-tbl,.users-tbl tbody{display:block}
+}
+
+@media(max-width:900px){
+  .users-tbl,.users-tbl tbody{display:block;width:100%}
   .users-tbl tr:first-child{display:none}
-  .users-tbl tr.qi{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .users-tbl tr.qi{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
   .users-tbl tr.qi[hidden]{display:none}
-  .users-tbl td{display:block;border:0;padding:0;white-space:normal;word-break:break-word}
+  .users-tbl td{display:block;min-width:0;border:0;padding:0;white-space:normal;overflow-wrap:break-word;word-break:normal}
   .users-tbl .u-id{grid-column:1/-1;font-size:13px;color:var(--mute)}
   .users-tbl .u-name{grid-column:1/-1;margin-bottom:4px}.users-tbl .u-nm{font-weight:600}
   .users-tbl td[data-l]::before{content:attr(data-l) ": ";color:var(--mute);font-size:13px}
@@ -267,7 +270,7 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .holiday-history input{width:auto;margin:0}
 
 /* Safari zooms focused controls below 16px; keep the page at its normal scale. */
-@media(max-width:760px){
+@media(max-width:900px){
   input,select,textarea,input[type=file]{font-size:16px}
   .row>*{min-width:min(120px,100%);max-width:100%}
   button,.btn{max-width:100%;white-space:normal;overflow-wrap:break-word}
@@ -285,7 +288,7 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .course-code{color:var(--brand);white-space:nowrap;letter-spacing:.02em}
 .course-credit{white-space:nowrap}.course-remove{margin-left:auto;white-space:nowrap}
 .course-item h4{font-size:16px;margin:10px 0 8px;line-height:1.4}
-.course-item p{margin:0;font-size:13px;overflow-wrap:anywhere}
+.course-item p{margin:0;font-size:13px;overflow-wrap:break-word}
 .course-item p span{display:block;margin-bottom:2px;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
 
 .group-schedule-note{font-size:13px;color:var(--mute);margin:8px 0 0}
@@ -357,8 +360,9 @@ button,.btn,input,select,textarea{border-radius:7px}
   .nav-links{background:var(--card)}
   .mobile-account{display:none;border-top:1px solid var(--line);margin-top:8px;padding:12px 10px 4px;color:var(--mute);font-size:13px}
   nav.open .mobile-account{display:block}
-  .mobile-account>b,.mobile-account>span{display:block;overflow-wrap:anywhere}
-  .mobile-account>b{color:var(--ink);font-size:14px}
+  .mobile-account>b,.mobile-account>span{display:block}
+  .mobile-account>b{color:var(--ink);font-size:14px;overflow-wrap:break-word}
+  .mobile-account>span{overflow-wrap:anywhere}
   .mobile-account-actions{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;margin-top:8px}
   .mobile-account-actions>a{padding:4px 0;text-decoration:none}
   .mobile-account-actions>button{flex:1 1 auto}
@@ -375,7 +379,7 @@ button,.btn,input,select,textarea{border-radius:7px}
 .calendar-part-list .btn{flex:0 0 auto}
 @media(max-width:420px){.calendar-part-list>div{align-items:flex-start;flex-direction:column}.calendar-part-list .btn{width:100%}}
 
-@media(max-width:600px){
+@media(max-width:900px){
   .registered-subjects,.registered-subjects tbody{display:block;width:100%}
   .registered-subjects thead{display:none}
   .registered-subjects tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
@@ -383,6 +387,23 @@ button,.btn,input,select,textarea{border-radius:7px}
   .registered-subjects td::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--mute);font-size:11px;font-weight:600}
   .registered-subjects td[data-label="Name"]{grid-column:1/-1;font-weight:600}
   .registered-subjects td[data-label="Code"]{font-weight:600;white-space:nowrap}
+}
+
+@media(max-width:600px){
+  .cls{display:grid;grid-template-columns:minmax(0,1fr);gap:4px}
+  .cls .t{min-width:0;white-space:nowrap}
+}
+
+@media(max-width:900px){
+  table.tour td:first-child{white-space:normal}
+  .mobile-stack,.mobile-stack tbody{display:block;width:100%}
+  .mobile-stack thead{display:none}
+  .mobile-stack .mobile-stack-head{display:none}
+  .mobile-stack tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .mobile-stack td{display:block;min-width:0;padding:0;border:0;white-space:normal;overflow-wrap:break-word;word-break:normal}
+  .mobile-stack td[data-label]::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--mute);font-size:11px;font-weight:600}
+  .mobile-stack td[data-label="Subject"],.mobile-stack td[data-label="Item"],.mobile-stack td[data-label="What"],.mobile-stack td[data-label="Period"],.mobile-stack td[data-label="Venue"]{grid-column:1/-1}
+  .mobile-stack td[data-label="Code"]{font-weight:600;white-space:nowrap}
 }
 
 .wallpaper-recommendation{font-size:12px;margin:8px 0}
@@ -427,8 +448,9 @@ button,.btn,input,select,textarea{border-radius:7px}
   .nav-links a{padding:8px 10px}
   .mobile-account{display:none;grid-column:1/-1;border-top:1px solid var(--line);margin-top:4px;padding:12px 10px 2px;color:var(--mute);font-size:13px}
   nav.open .mobile-account{display:block}
-  .mobile-account>b,.mobile-account>span{display:block;overflow-wrap:anywhere}
-  .mobile-account>b{color:var(--ink);font-size:14px}
+  .mobile-account>b,.mobile-account>span{display:block}
+  .mobile-account>b{color:var(--ink);font-size:14px;overflow-wrap:break-word}
+  .mobile-account>span{overflow-wrap:anywhere}
   .mobile-account-actions{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;margin-top:8px}
   .mobile-account-actions>a{padding:4px 0;text-decoration:none}
   .mobile-account-actions>button{flex:1 1 auto}
