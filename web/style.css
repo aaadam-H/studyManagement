@@ -37,14 +37,14 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;
 /* menu: sidebar on wide screens, collapsible top bar on phones */
 .nav-top{display:contents}
 .brand{text-decoration:none;color:var(--ink)}.nav-page,.menu-btn{display:none}
-.nav-links{display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow-y:auto}
+.nav-links{display:flex;flex-direction:column;gap:2px;flex:1}
 .nav-group{display:grid;gap:2px}
 .nav-group+.nav-group{border-top:1px solid var(--line);margin-top:6px;padding-top:5px}
 .nav-group-title{font-size:11px;font-weight:600;color:var(--mute);margin:5px 10px 2px}
 .who .logout{display:inline-block;margin-top:4px}
 @media(max-width:760px){
   .shell{flex-direction:column}
-  nav{width:auto;height:auto;padding:0;border-right:0;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20;display:block}
+  nav{width:auto;height:auto;padding:0;border-right:0;border-bottom:1px solid var(--line);position:relative;z-index:20;display:block}
   .nav-top{display:flex;align-items:center;gap:10px;padding:8px 12px 8px 16px}
   .brand h1{font-size:18px;margin:0}.brand small{display:none}
   .nav-page{display:block;flex:1;min-width:0;color:var(--mute);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -54,7 +54,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;
   nav.open .burger{background:transparent}nav.open .burger::before{transform:translateY(5px) rotate(45deg)}nav.open .burger::after{transform:translateY(-5px) rotate(-45deg)}
   .menu-dot{position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--bad);border:2px solid var(--card)}
   .menu-dot[hidden]{display:none}
-  .nav-links{display:none;padding:4px 12px 12px;max-height:calc(100vh - 56px);max-height:calc(100dvh - 56px);border-top:1px solid var(--line)}
+  .nav-links{display:none;padding:4px 12px 12px;border-top:1px solid var(--line)}
   nav.open .nav-links{display:flex}
   .nav-links a{padding:11px 12px}
   .nav-group-title{margin:7px 12px 2px}
@@ -197,8 +197,8 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .public-hero{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(220px,1fr);gap:18px;align-items:stretch;padding:20px}.public-hero h2{font-size:30px;line-height:1.15;margin:7px 0 10px;max-width:760px}.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:12px;font-weight:700;color:var(--brand)}.lead{font-size:17px;color:var(--mute);max-width:760px}.hero-note{background:var(--bg);border:1px dashed var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;justify-content:center;gap:8px}.hero-note b{font-size:15px}.hero-note span{color:var(--mute);font-size:14px}.public-stats .card{margin-bottom:0}.public-stats{margin-bottom:14px}.public-cta{display:flex;gap:16px;align-items:center;justify-content:space-between;border-left:4px solid var(--brand)}.public-cta>div{min-width:0}.public-cta p{margin:4px 0 0}.public-filters{align-items:end}.public-day{margin-bottom:12px}.public-cls[hidden],.public-day[hidden],.public-post[hidden],.public-bgroup[hidden]{display:none!important}
 .auth{max-width:760px}.auth-video{padding:12px;overflow:hidden}.video-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:4px 4px 10px}.video-head h3{margin:0 0 2px}.video-head p{margin:0}.auth-video video{display:block;width:100%;aspect-ratio:16/9;background:#080b14;border-radius:8px}.video-points{display:flex;gap:8px;flex-wrap:wrap;padding:10px 4px 2px}.video-points span{font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:99px;color:var(--mute)}.auth-guest{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;margin:14px 0 2px}.auth-reason{max-width:100%;border-left:4px solid var(--brand);padding:12px 14px}.auth-reason p{margin:4px 0 0;color:var(--mute)}
 .admin-data-tbl{min-width:900px}.table-scroll{max-width:100%;overflow-x:auto}
-@media(min-width:761px){.shell>nav{position:fixed;inset:0 auto 0 0;height:100vh;height:100dvh;min-height:0}.shell>.content{margin-left:220px}.guest-shell>nav{width:210px}.guest-shell>.content{margin-left:210px}}
-@media(max-width:760px){.shell>nav{position:sticky;inset:auto;height:auto;min-height:0}.shell>.content{margin-left:0}}
+@media(min-width:761px){.shell>nav{position:relative;inset:auto;height:auto;min-height:100vh;flex:0 0 220px}.shell>.content{margin-left:0}.guest-shell>nav{width:210px;flex-basis:210px}.guest-shell>.content{margin-left:0}}
+@media(max-width:760px){.shell>nav{position:relative;inset:auto;height:auto;min-height:0}.shell>.content{margin-left:0}}
 .users-tbl .u-nm{font-weight:inherit}
 /* phones: each user becomes a small card with its buttons visible (no sideways scrolling) */
 @media(max-width:760px){
