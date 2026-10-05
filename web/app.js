@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.13';
+import { createZip } from './zip.js?v=1.2.14';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.13';
+const APP_VERSION = '1.2.14';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1410,13 +1410,24 @@ async function pgBulletin(m) {
   ${Object.keys(groups).sort((a, b) => (b === UPD) - (a === UPD) || muted.includes(a) - muted.includes(b) || a.localeCompare(b)).map((code) => {
     const off = muted.includes(code), fresh = groups[code].filter(isNew).length;
     const posts = groups[code].map((p) => `<div class="post qi" data-kind="${esc(p.kind)}"><h4>${isNew(p) ? '<span class="tag new">NEW</span> ' : ''}<span class="tag ${esc(p.kind)}">${esc(p.kind)}</span> ${esc(p.title)} ${p.due_date ? `<span class="tag">due ${esc(p.due_date)}</span>` : ''}</h4>${p.body ? `<p>${esc(p.body)}</p>` : ''}
-  <span class="mute">${esc(p.author_name)}${p.author_sid ? ` (${esc(p.author_sid)})` : ''}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''} · ${esc(new Date(p.created_at).toLocaleString())}</span> ${p.user_id === me.id || isAdmin() ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('');
+  <span class="mute">${esc(p.author_name)}${p.author_sid ? ` (${esc(p.author_sid)})` : ''}${p.real_author ? ` · posted by ${esc(p.real_author)}` : ''} · ${esc(new Date(p.created_at).toLocaleString())}</span> ${isAdmin() ? `<details class="bulletin-edit"><summary>Edit post</summary><form data-edit-post="${p.id}"><label>Title</label><input name="title" required maxlength="200" value="${esc(p.title)}"><label>Details</label><textarea name="body" rows="3" maxlength="4000">${esc(p.body || '')}</textarea><label>Due date</label><input type="date" name="due_date" value="${esc(p.due_date || '')}"><div class="btns"><button>Save changes</button><button type="button" class="ghost" data-cancel-edit>Cancel</button></div><span class="mute" data-edit-message></span></form></details>` : ''} ${p.user_id === me.id || isAdmin() ? `<button class="sm ghost" data-del="${p.id}">Delete</button>` : ''} ${p.user_id !== me.id ? `<a class="report" href="#/feedback/report/${p.id}">Report</a>` : ''}</div>`).join('');
     return `<div class="card qg${off ? ' muted' : ''}"><div class="gh"><h3>${code === UPD ? 'Updates' : code ? esc(code) + ' <span class="mute">' + esc(groups[code][0].course_name || '') + '</span>' : 'General'}${fresh && !off ? ` <span class="tag new">${fresh} new</span>` : ''}</h3>
       ${code && code !== UPD ? `<button class="sm ghost" data-${off ? 'unmute' : 'mute'}="${esc(code)}" title="${off ? 'Count new posts again' : 'Stop counting new posts from this subject'}">${off ? 'Unmute' : 'Mute'}</button>` : ''}</div>
       ${off ? `<details><summary>Muted · show ${groups[code].length} post${groups[code].length === 1 ? '' : 's'}</summary>${posts}</details>` : posts}</div>`;
   }).join('') || '<div class="card mute">No posts yet.</div>'}`;
   m.querySelectorAll('[data-mute]').forEach((x) => (x.onclick = async () => { await saveMuted([...new Set([...muted, x.dataset.mute])]); render(); }));
   m.querySelectorAll('[data-unmute]').forEach((x) => (x.onclick = async (e) => { e.preventDefault(); await saveMuted(muted.filter((c) => c !== x.dataset.unmute)); render(); }));
+  m.querySelectorAll('[data-edit-post]').forEach((form) => (form.onsubmit = async (event) => {
+    event.preventDefault();
+    const data = fd(form);
+    const message = form.querySelector('[data-edit-message]');
+    if (!data.title.trim()) return flash(message, 'A title is required.');
+    try {
+      await q(sb.from('posts').update({ title: data.title.trim(), body: data.body?.trim() || null, due_date: data.due_date || null }).eq('id', form.dataset.editPost));
+      render();
+    } catch (error) { flash(message, error.message); }
+  }));
+  m.querySelectorAll('[data-cancel-edit]').forEach((button) => (button.onclick = () => { button.closest('details').open = false; }));
   // opened: everything up to now is seen (the NEW tags stay until the student leaves the page)
   q(sb.rpc('mark_bulletin_seen')).then((t) => { me.bulletin_seen_at = t; updateBulletinBadge(); }).catch(() => {});
   document.getElementById('bf').onchange = (e) => { try { sessionStorage.setItem('bfilter', e.target.value); } catch {} render(); };

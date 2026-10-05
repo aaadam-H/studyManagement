@@ -109,11 +109,15 @@ update settings set value = 'https://example.edu/t.html' where key = 'timetable_
 select pg_temp.expect((select value from settings where key='timetable_url') = 'https://example.edu/t.html', 'admin edits timetable link');
 insert into posts(title) values ('Campus notice');
 select pg_temp.expect((select count(*) from posts where course_code is null) = 1, 'admin general post');
+update posts set title = 'Campus notice edited', body = 'Updated details' where title = 'Campus notice';
+select pg_temp.expect((select title || '|' || body from posts where title = 'Campus notice edited') = 'Campus notice edited|Updated details', 'admin edits bulletin content');
 insert into posts(course_code, kind, title) values ('IMJ41203', 'update', 'New timetable is out');
 select pg_temp.expect((select author_name || '|' || coalesce(author_sid, '-') || '|' || coalesce(course_code, 'everyone') from posts where kind = 'update') = 'ADMIN|-|everyone', 'update hides the admin name and goes to everyone');
 reset role;
 select pg_temp.as_user('b');
 select pg_temp.expect_fail($$insert into posts(course_code, kind, title) values ('IMJ41203', 'update', 'fake')$$, 'student posting an update');
+update posts set title = 'Student overwrite' where title = 'Campus notice edited';
+select pg_temp.expect((select title from posts where title = 'Campus notice edited') = 'Campus notice edited', 'student cannot edit bulletin posts');
 insert into update_dismissals(post_id) select id from posts where kind = 'update';
 select pg_temp.expect((select count(*) from update_dismissals) = 1, 'student dismisses an update');
 select pg_temp.expect_fail($$insert into update_dismissals(user_id, post_id) select '00000000-0000-0000-0000-00000000000c', id from posts where kind = 'update'$$, 'dismissing for someone else');

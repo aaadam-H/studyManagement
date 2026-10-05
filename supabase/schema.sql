@@ -328,7 +328,10 @@ create policy posts_insert on public.posts for insert to authenticated
   with check (public.is_admin() or (kind <> 'update' and course_code is not null and public.is_enrolled(course_code)));
 drop policy if exists posts_delete on public.posts;
 create policy posts_delete on public.posts for delete to authenticated using (user_id = auth.uid() or public.is_admin());
+drop policy if exists posts_update_admin on public.posts;
+create policy posts_update_admin on public.posts for update to authenticated using (public.is_admin()) with check (public.is_admin());
 revoke update on public.posts from anon, authenticated;
+grant update (title, body, due_date) on public.posts to authenticated;
 -- exam slips: your own (admins can read them to help)
 alter table public.exam_slips enable row level security;
 drop policy if exists exam_slips_read on public.exam_slips;
