@@ -12,7 +12,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.1.18';
+const APP_VERSION = '1.1.19';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/60194145201" target="_blank" rel="noopener">@aaadam_h / 019-4145201</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -924,11 +924,15 @@ async function pgTimetable(m) {
   const timetableHtml = `<h2>Timetable</h2><p class="sub">Built from your registered subjects and the university timetable. Mix-and-match groups are fine.</p>
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
   ${noData ? `<div class="card">The university timetable has not been loaded yet. ${me.role === 'admin' ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
-  ${tt.myCourseCount && !noData ? `<div class="card"><h3>1. Your main group</h3>
+  <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}</span></div>${weekHtml(tt)}</section>
+  <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Save a 9:16 phone wallpaper with your selected groups and added classes.</p></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Portrait preview of your weekly timetable"></canvas><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? '1080 × 1920 PNG' : 'Choose groups or add classes to build your week first.'}</span></div></div>
+  <p class="mute timetable-source">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>
+  <details class="timetable-settings"><summary>Groups, classes and calendar settings</summary>
+  ${tt.myCourseCount && !noData ? `<div class="card"><h3>Your main group</h3>
     <p class="mute">Pick the group you mostly attend with. Groups teaching the most of your subjects are listed first.</p>
     ${tt.groupOptions.length ? `<div class="row"><div><select id="mg"><option value="">- choose your group -</option>${tt.groupOptions.map((o) => `<option value="${esc(o.group)}" ${o.group === tt.main ? 'selected' : ''}>${esc(groupLabel(o.group))} - teaches ${o.n} of your ${tt.myCourseCount} subjects</option>`).join('')}</select></div></div>`
       : '<p>None of your subjects appear in the loaded timetable. Add your classes manually below.</p>'}</div>
-  <div class="card"><h3>2. Group for each subject</h3>
+  <div class="card"><h3>Group for each subject</h3>
     <p class="mute">Took a subject with a different group? Change it here. Choose "Hide" for subjects without scheduled classes.</p>
     ${scheduleError ? '<p class="mute">Group schedules could not be loaded. You can still choose a group; reload to retry the schedule details.</p>' : ''}
     <table class="subject-groups"><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr><td><b>${esc(c.code)}</b> ${esc(c.name || '')}${(clashes[c.code] || []).map((clash) => `<span class="clash-note">Schedule clash with ${esc(clash.code)} on ${esc(DAYN[clash.day])}, ${esc(clash.start)}-${esc(clash.end)}</span>`).join('')}</td><td>
@@ -937,7 +941,7 @@ async function pgTimetable(m) {
         ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(prettyGroup(g))} — ${esc(scheduleFor(c, g))}</option>`).join('')}
         <option value="none" ${c.section === 'none' ? 'selected' : ''}>Hide this subject</option></select>${c.chosen ? `<p class="group-schedule-note">${esc(scheduleFor(c, c.chosen))}</p>` : ''}`
       : '<span class="mute">Not in the loaded timetable (it may be for a different semester). Add it manually below.</span>'}</td></tr>`).join('')}</table></div>` : ''}
-  <div class="card"><h3>${tt.myCourseCount && !noData ? '3. ' : ''}Add a class manually</h3>
+  <div class="card"><h3>Add a class manually</h3>
     <p class="mute">For classes that are missing or different from the university timetable.</p>
     <form id="mc"><div class="row">
       <div><label>Subject</label><select name="course_code">${courseOpts}<option value="">Other (type a title)</option></select></div>
@@ -947,10 +951,8 @@ async function pgTimetable(m) {
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
       <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
     ${tt.custom.length ? `<h4>Your added classes</h4><table>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</table>` : ''}</div>
-  <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Save a 9:16 phone wallpaper with your selected groups and added classes.</p></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Portrait preview of your weekly timetable"></canvas><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? '1080 × 1920 PNG' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   ${calendarCard(tt, ac)}
-  <h3>Your week</h3>${weekHtml(tt)}
-  <p class="mute">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>`;
+  </details>`;
   // Sanitize the complete template before it enters the live document.
   m.replaceChildren(DOMPurify.sanitize(timetableHtml, { RETURN_DOM_FRAGMENT: true }));
   const wallpaper = m.querySelector('#timetable-wallpaper');
@@ -1508,9 +1510,9 @@ async function pgPublicChangelog(m) {
 }
 async function pgAdminChangelog(m) {
   const entries = await q(sb.from('changelog').select('*').order('created_at', { ascending: false }));
-  m.innerHTML = `<h2>Manage changelog</h2><p class="sub">Private entries are visible only to admins. Publish an entry when it is ready for everyone.</p>
+  m.innerHTML = `<h2>Manage changelog</h2><p class="sub">Updates are generated automatically from changes pushed to the system. New entries stay private until you publish them here.</p>
     <div class="card"><h3>New entry</h3><form id="changelog-new"><div class="row"><div><label>Version (optional)</label><input name="version" maxlength="40" placeholder="e.g. 1.2.0"></div><div><label>Title</label><input name="title" required maxlength="200"></div></div><label>Update details</label><textarea name="body" required maxlength="8000" rows="5" placeholder="What changed?"></textarea><label class="remember"><input type="checkbox" name="is_public"> Make public immediately</label><div id="cl-new-msg"></div><button>Create entry</button></form></div>
-    <h3>Entries (${entries.length})</h3>${entries.map((entry) => `<article class="card changelog-entry"><div class="changelog-head"><div>${entry.version ? `<span class="ver-tag">${esc(entry.version)}</span>` : ''}<b>${esc(entry.title)}</b><span class="tag ${entry.is_public ? 'info' : ''}">${entry.is_public ? 'Public' : 'Private'}</span></div><time class="mute">${esc(changelogDate(entry.created_at))}</time></div>
+    <h3>Entries (${entries.length})</h3>${entries.map((entry) => `<article class="card changelog-entry"><div class="changelog-head"><div>${entry.version ? `<span class="ver-tag">${esc(entry.version)}</span>` : ''}<b>${esc(entry.title)}</b><span class="tag ${entry.is_public ? 'info' : ''}">${entry.is_public ? 'Public' : 'Private'}</span></div><time class="mute">${esc(changelogDate(entry.created_at))}</time></div><p class="changelog-body">${esc(entry.body)}</p>
       <details><summary>Edit entry</summary><form class="changelog-edit" data-entry="${entry.id}"><div class="row"><div><label>Version (optional)</label><input name="version" maxlength="40" value="${esc(entry.version || '')}"></div><div><label>Title</label><input name="title" required maxlength="200" value="${esc(entry.title)}"></div></div><label>Update details</label><textarea name="body" required maxlength="8000" rows="5">${esc(entry.body)}</textarea><label class="remember"><input type="checkbox" name="is_public" ${entry.is_public ? 'checked' : ''}> Public</label><div class="btns"><button>Save changes</button><button type="button" class="ghost" data-remove-entry="${entry.id}">Delete</button></div><div class="mute" data-entry-msg="${entry.id}"></div></form></details></article>`).join('') || '<div class="card mute">No changelog entries yet.</div>'}`;
   document.getElementById('changelog-new').onsubmit = async (event) => {
     event.preventDefault();

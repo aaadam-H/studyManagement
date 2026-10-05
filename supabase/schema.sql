@@ -103,9 +103,11 @@ create table if not exists public.changelog (
   title text not null check (length(title) between 1 and 200),
   body text not null check (length(body) between 1 and 8000),
   is_public boolean not null default false,
+  source_commit text unique check (source_commit ~ '^[0-9a-f]{40}$'),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.changelog add column if not exists source_commit text unique check (source_commit ~ '^[0-9a-f]{40}$');
 create index if not exists changelog_public_created_idx on public.changelog(is_public, created_at desc);
 create table if not exists public.posts (
   id bigint generated always as identity primary key,

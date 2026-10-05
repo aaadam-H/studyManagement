@@ -23,6 +23,11 @@ Left menu, **Authentication**, then **Sign In / Providers** (or **Providers**), 
 3. Replace the sample code with the contents of `supabase/functions/fetch-timetable/index.ts`, then **Deploy**.
 4. Leave "Verify JWT" / "Enforce JWT" **on**.
 
+## 4a. Automatic changelog drafts
+1. Create an Edge Function named **`changelog-ingest`** from `supabase/functions/changelog-ingest/index.ts`.
+2. Turn **Verify JWT / Enforce JWT OFF** for this function. Its code verifies a short-lived GitHub Actions OIDC token itself and only accepts this repository's changelog workflow on `main`.
+3. Each push to `main` creates a **private** changelog draft. An admin can review, edit and publish it from **Manage changelog**. The app does not expose the service-role key to GitHub or the browser.
+
 ## 5. Connect the website to Supabase
 1. Click **Connect** at the top of the dashboard (or Project Settings, then **API**).
 2. Copy the **Project URL** and the **anon / publishable** key. **Not** the `service_role` / secret key.

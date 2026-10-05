@@ -1,0 +1,44 @@
+name: Generate changelog draft
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/github-script@v7
+        env:
+          SUPABASE_URL: https://dgtdjjxansskplbcsonb.supabase.co
+          SUPABASE_ANON_KEY: sb_publishable_tJcVCONkMKldAuaFzS0pwg_YXEghyfj
+        with:
+          script: |
+            const { execFileSync } = require('child_process');
+            const sha = context.sha;
+            let before = context.payload.before;
+            try { execFileSync('git', ['cat-file', '-e', `${before}^{commit}`]); }
+            catch { before = `${sha}^`; }
+            const raw = execFileSync('git', ['log', '--no-merges', '--reverse', '--format=%h%x1f%s%x1e', `${before}..${sha}`], { encoding: 'utf8' });
+            const commits = raw.split('\x1e').map((item) => item.trim()).filter(Boolean).map((item) => {
+              const [short, ...subject] = item.split('\x1f');
+              return { short, subject: subject.join(' ').trim().replace(/\s+/g, ' ') };
+            });
+            if (!commits.length) { core.info('No non-merge commits to record.'); return; }
+            const app = execFileSync('git', ['show', `${sha}:web/app.js`], { encoding: 'utf8' });
+            const version = app.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1] || null;
+            const title = 'System update';
+            let body = `Changes included in this update:\n${commits.map((commit) => `- ${commit.short}: ${commit.subject}`).join('\n')}`;
+            if (body.length > 7800) body = `${body.slice(0, 7700)}\n- Additional commit details omitted to fit the changelog entry.`;
+            const token = await core.getIDToken('studyhub-changelog');
+            const response = await fetch(`${process.env.SUPABASE_URL}/functions/v1/changelog-ingest`, {
+              method: 'POST',
+              headers: { apikey: process.env.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ source_commit: sha, version, title, body }),
+            });
+            if (!response.ok) throw new Error(`Changelog ingest failed (${response.status}): ${await response.text()}`);
+            core.info(`Created private changelog draft for ${sha}.`);
