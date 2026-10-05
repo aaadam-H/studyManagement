@@ -139,15 +139,16 @@ details.qa{border-bottom:1px solid var(--line);padding:8px 0}details.qa:last-chi
 .fb-filter{margin-bottom:12px}
 a.report{font-size:13px;color:var(--mute);margin-left:6px}
 /* class types: lecture / lab / tutorial */
-.cls.k-lec{border-left-color:var(--lec)}.cls.k-lab{border-left-color:var(--lab)}.cls.k-tut{border-left-color:var(--tut)}.cls.k-oth{border-left-color:var(--mute)}
+.cls.k-lec{border-left-color:var(--lec);background:color-mix(in srgb,var(--lec) 8%,var(--bg))}.cls.k-lab{border-left-color:var(--lab);background:color-mix(in srgb,var(--lab) 8%,var(--bg))}.cls.k-tut{border-left-color:var(--tut);background:color-mix(in srgb,var(--tut) 8%,var(--bg))}.cls.k-oth{border-left-color:var(--mute)}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mute);margin:0 0 10px}
 .legend span::before{content:'';display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
-.legend .k-lec::before{background:var(--lec)}.legend .k-lab::before{background:var(--lab)}.legend .k-tut::before{background:var(--tut)}
+.legend .k-lec::before{background:var(--lec)}.legend .k-lab::before{background:var(--lab)}.legend .k-tut::before{background:var(--tut)}.legend .k-hol::before{background:var(--hol)}
 /* calendar */
 .cal .d{min-height:64px;cursor:pointer}.cal .d:hover{border-color:var(--mute)}.cal .d.sel{outline:2px solid var(--brand);outline-offset:-1px}
 .cal .e{line-height:1.35}
 .cal .e.c{border-left:3px solid var(--mute);border-radius:2px 4px 4px 2px;padding-left:4px}
-.cal .e.k-lec{border-left-color:var(--lec)}.cal .e.k-lab{border-left-color:var(--lab)}.cal .e.k-tut{border-left-color:var(--tut)}
+.cal .e.k-lec{border-left-color:var(--lec);background:color-mix(in srgb,var(--lec) 12%,var(--bg))}.cal .e.k-lab{border-left-color:var(--lab);background:color-mix(in srgb,var(--lab) 12%,var(--bg))}.cal .e.k-tut{border-left-color:var(--tut);background:color-mix(in srgb,var(--tut) 12%,var(--bg))}
+.cal .e.holi{color:var(--hol);font-weight:600;border-left:3px solid var(--hol);background:color-mix(in srgb,var(--hol) 12%,var(--bg))}
 .cal .e.due{color:var(--warn)}
 #calday{margin-top:14px}#calday h3{margin-top:0}#calday h4{margin:12px 0 4px}
 @media(max-width:760px){.cal{gap:2px}.cal .d{min-height:54px;padding:2px}.cal .e{font-size:10px;padding:0 2px}.cal .e.c .nm{display:none}.cal .e.per,.cal .e.holi,.cal .e.due{font-size:0;height:4px;padding:0;background:currentColor}}
@@ -272,7 +273,7 @@ footer .ver{margin-top:4px;color:var(--mute)}
 
 .group-schedule-note{font-size:13px;color:var(--mute);margin:8px 0 0}
 
-.holiday-next{border-left:4px solid var(--brand)}
+.holiday-next{border-left:4px solid var(--hol)}
 .holiday-next .holiday-head h3{margin:0}
 .holiday-next h4{font-size:18px;margin:14px 0 6px}
 .holiday-next p{margin:0 0 14px}
@@ -282,8 +283,8 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .changelog-entry h3{display:inline;font-size:18px;margin:0 8px}.changelog-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.changelog-head>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.changelog-body{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0}.changelog-edit{margin-top:12px}.changelog-edit summary{cursor:pointer}
 
 /* Shared visual refinement: softer neutrals, clearer hierarchy, and tighter spacing. */
-:root{--bg:#f3f6f8;--card:#fff;--ink:#202a33;--mute:#667784;--line:#dce4e9;--brand:#256d83;--brand-ink:#fff;--ok:#14856c;--warn:#a7650a;--bad:#c33d4b;--lec:#566bc2;--lab:#14856c;--tut:#168ba0}
-@media(prefers-color-scheme:dark){:root{--bg:#11171c;--card:#1b242b;--ink:#edf2f5;--mute:#a0afb8;--line:#303e47;--brand:#77c5d2;--brand-ink:#102027;--ok:#54c6a5;--warn:#f0bb68;--bad:#ff7883;--lec:#a0a9ff;--lab:#54c6a5;--tut:#55c9d6}}
+:root{--bg:#f3f6f8;--card:#fff;--ink:#202a33;--mute:#667784;--line:#dce4e9;--brand:#256d83;--brand-ink:#fff;--ok:#14856c;--warn:#a7650a;--bad:#c33d4b;--hol:#c2410c;--lec:#566bc2;--lab:#14856c;--tut:#168ba0}
+@media(prefers-color-scheme:dark){:root{--bg:#11171c;--card:#1b242b;--ink:#edf2f5;--mute:#a0afb8;--line:#303e47;--brand:#77c5d2;--brand-ink:#102027;--ok:#54c6a5;--warn:#f0bb68;--bad:#ff7883;--hol:#fdba74;--lec:#a0a9ff;--lab:#54c6a5;--tut:#55c9d6}}
 body{line-height:1.55}
 .shell>nav{background:var(--card)}
 nav{padding:18px 12px}
