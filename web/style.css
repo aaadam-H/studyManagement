@@ -331,3 +331,8 @@ button,.btn,input,select,textarea{border-radius:7px}
   .account-rail{padding:14px}
 }
 @media(max-width:760px){.account-rail{flex:0 0 auto;border-left:0;border-top:1px solid var(--line);padding:14px}.account-panel{position:static}.maintenance-screen{padding:16px}.maintenance-notice{padding:18px}}
+.calendar-mode{margin-top:12px}
+.calendar-part-list{display:grid;margin-top:8px}
+.calendar-part-list>div{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line)}
+.calendar-part-list .btn{flex:0 0 auto}
+@media(max-width:420px){.calendar-part-list>div{align-items:flex-start;flex-direction:column}.calendar-part-list .btn{width:100%}}

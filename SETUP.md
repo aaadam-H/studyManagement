@@ -57,8 +57,11 @@ Students then open **Timetable**, pick their main group, change the group for an
 (mix and match), and can add classes by hand for anything missing. Guests can browse the shared university timetable, bulletin and academic calendar without logging in, but all personal uploads, edits and admin actions remain login-gated.
 
 ## 9. Calendar apps (Google / Apple)
-1. Supabase, **Edge Functions**, **Deploy a new function**, **Via Editor**, name it exactly **`calendar-feed`**,
-   paste `supabase/functions/calendar-feed/index.ts`, **Deploy**.
+1. Supabase, **Edge Functions**, deploy or update **`calendar-feed`** with both
+   `supabase/functions/calendar-feed/index.ts` and `supabase/functions/calendar-feed/filter.js`.
+   The website offers all-in-one, separate category subscriptions, and a ZIP of separate calendar files. A GitHub Pages push
+   does not update this function; redeploy it separately. Include both files (for example, as a function ZIP in the Dashboard
+   editor or by deploying the function directory with the Supabase CLI); do not paste only `index.ts`.
 2. Open the function's **Details** and turn **Verify JWT / Enforce JWT verification OFF**. Calendar apps can't log in;
    each student's link carries a secret token instead, and the database only answers for a valid token.
 3. Site, **Admin**, **Academic calendar**: upload the university's Kalendar Akademik PDF, check the preview (untick "No classes"

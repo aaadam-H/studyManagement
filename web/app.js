@@ -3,6 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
+import { createZip } from './zip.js?v=1.2.6';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -13,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.5';
+const APP_VERSION = '1.2.6';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1079,7 +1080,8 @@ async function pgTimetable(m) {
 }
 
 /* ---------------- calendar apps (.ics download + Google / Apple subscription) ---------------- */
-const feedUrl = () => `${CFG.SUPABASE_URL}/functions/v1/calendar-feed?token=${me.calendar_token}`;
+const CALENDAR_PARTS = [['lecture', 'Lectures'], ['lab', 'Labs'], ['tutorial', 'Tutorials'], ['other', 'Other classes'], ['holiday', 'Holidays and breaks']];
+const feedUrl = (category = 'all') => `${CFG.SUPABASE_URL}/functions/v1/calendar-feed?token=${me.calendar_token}${category === 'all' ? '' : `&category=${encodeURIComponent(category)}`}`;
 function calendarCard(tt, ac) {
   const https = feedUrl(), webcal = https.replace(/^https:/, 'webcal:');
   const w = ac.window;
@@ -1100,12 +1102,16 @@ function calendarCard(tt, ac) {
       <a class="btn ghost-link" target="_blank" rel="noopener" href="https://calendar.google.com/calendar/r/settings/addbyurl">Open "Add by URL"</a></div></div>` : '';
   return `<div class="card"><h3>Add to your calendar app</h3>
   <p class="mute">Your classes repeat weekly: ${esc(range)}. Times are Malaysia time.</p>
-  <div class="btns">
+  <label for="calendar-mode">Calendar format</label><select id="calendar-mode"><option value="all">All-in-one calendar</option><option value="separate">Separate calendars</option><option value="package">Download package (.zip)</option></select>
+  <section class="calendar-mode" data-calendar-mode="all"><div class="btns">
     ${ios ? `<a class="btn" href="${esc(webcal)}">Subscribe in Apple Calendar</a>` : ''}
     ${android || ios ? '' : `<a class="btn" target="_blank" rel="noopener" href="${esc(google)}">Connect Google Calendar</a>`}
     <button id="ics" type="button" class="${android || ios ? 'ghost' : ''}">Download .ics${android ? '' : ' (Apple / Outlook)'}</button>
     ${ios || android ? '' : `<a class="btn ghost-link" href="${esc(webcal)}">Subscribe in Apple Calendar</a>`}
-  </div><div id="icm"></div>${phoneHelp}
+  </div>${phoneHelp}</section>
+  <section class="calendar-mode" data-calendar-mode="separate" hidden><p class="mute">Subscribe to only the calendars you want. Add each one separately in Apple Calendar, then choose its color there.</p><div class="calendar-part-list">${CALENDAR_PARTS.map(([category, label]) => `<div><b>${label}</b><a class="btn ghost-link" href="${esc(feedUrl(category).replace(/^https:/, 'webcal:'))}">Subscribe</a></div>`).join('')}</div></section>
+  <section class="calendar-mode" data-calendar-mode="package" hidden><p class="mute">Download a ZIP containing separate .ics files for each class type and holidays. Import the calendars you want, then set their colors in Apple Calendar.</p><button type="button" id="ics-package">Download calendar package</button></section>
+  <div id="icm" aria-live="polite"></div>
   <details><summary>Live link and help</summary>
     <p class="mute">Subscribing keeps your calendar updated when your timetable changes (Google refreshes every few hours, Apple about every 6 hours). The download is a one-time copy.</p>
     <p class="mute"><b>Google on a computer:</b> "Connect Google Calendar", or Google Calendar, "Other calendars" <b>+</b>, "From URL", paste the link below. It then also shows on your phone (turn on Sync for it in the phone app).<br>
@@ -1117,6 +1123,8 @@ function calendarCard(tt, ac) {
 }
 function wireCalendarCard(m) {
   const msg = document.getElementById('icm');
+  const mode = document.getElementById('calendar-mode');
+  mode.onchange = () => m.querySelectorAll('[data-calendar-mode]').forEach((section) => { section.hidden = section.dataset.calendarMode !== mode.value; });
   m.querySelectorAll('#ics, .card:has(#ics) a.btn, .cpy').forEach((el) => el.addEventListener('click', () => store.set('sh_cal_' + me.id, '1')));
   document.getElementById('ics').onclick = async () => {
     try {
@@ -1127,6 +1135,24 @@ function wireCalendarCard(m) {
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     } catch (er) { flash(msg, er.message); }
+  };
+  document.getElementById('ics-package').onclick = async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const files = await Promise.all(CALENDAR_PARTS.map(async ([category, label]) => {
+        const response = await fetch(feedUrl(category), { headers: { apikey: CFG.SUPABASE_ANON_KEY } });
+        if (!response.ok) throw new Error('Could not prepare the calendar package. Try again later.');
+        return { name: `StudyHub-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`, data: await response.text() };
+      }));
+      const blob = new Blob([createZip(files)], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = 'studyhub-calendars.zip'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      store.set('sh_cal_' + me.id, '1');
+      flash(msg, 'Calendar package downloaded.', 1);
+    } catch (error) { flash(msg, error.message || 'Could not prepare the calendar package.'); }
+    finally { button.disabled = false; }
   };
   m.querySelectorAll('.cpy').forEach((b) => (b.onclick = async () => {
     try { await navigator.clipboard.writeText(feedUrl()); flash(msg, 'Link copied', 1); }
