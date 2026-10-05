@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.15';
+import { createZip } from './zip.js?v=1.2.16';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.15';
+const APP_VERSION = '1.2.16';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -359,7 +359,7 @@ async function render() {
     const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
     menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
     document.getElementById('nav-links').addEventListener('click', (e) => { if (e.target.closest?.('a[href^="#/"]')) setMenu(false); });
-    try { await fn(document.getElementById('main')); }
+    try { await fn(document.getElementById('main')); prepareMobileTables(document.getElementById('main')); }
     catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
     return;
   }
@@ -401,8 +401,21 @@ async function render() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.classList.contains('open')) { setMenu(false); menuBtn.focus(); } });
   if (key !== 'bulletin') bulletinNewSince = null;
   updateBadges();
-  try { await fn(document.getElementById('main')); }
+  try { await fn(document.getElementById('main')); prepareMobileTables(document.getElementById('main')); }
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+function prepareMobileTables(root) {
+  root.querySelectorAll('table:not(.registered-subjects):not(.subject-groups):not(.admin-data-tbl):not(.cal)').forEach((table) => {
+    if (table.closest('.table-scroll')) return;
+    const header = table.tHead?.rows[0] || [...table.rows].find((row) => row.querySelector('th'));
+    if (!header) return;
+    const labels = [...header.cells].map((cell) => cell.textContent.trim());
+    header.classList.add('mobile-stack-head');
+    table.classList.add('mobile-stack');
+    [...table.rows].filter((row) => row !== header).forEach((row) => [...row.cells].forEach((cell, index) => {
+      if (cell.tagName === 'TD' && labels[index]) cell.dataset.label = labels[index];
+    }));
+  });
 }
 window.addEventListener('hashchange', render);
 sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; setTimeout(render, 0); } });
@@ -1125,7 +1138,7 @@ async function pgTimetable(m) {
       <div><label>Start</label><input type="time" name="start_time" required></div><div><label>End</label><input type="time" name="end_time" required></div></div>
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
       <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
-    ${tt.custom.length ? `<h4>Your added classes</h4><table>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</table>` : ''}</div>
+    ${tt.custom.length ? `<h4>Your added classes</h4><table><thead><tr><th>Day and time</th><th>Subject</th><th>Venue</th><th></th></tr></thead><tbody>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</tbody></table>` : ''}</div>
   ${calendarCard(tt, ac)}
   </details>`;
   // Sanitize the complete template before it enters the live document.
@@ -1349,8 +1362,9 @@ function mountSlipUpload(root, onSaved) {
       msg.innerHTML = '';
       root.querySelector('#preview').innerHTML = `<h4>Found on the slip</h4><p>${esc(p.name || '')} · ${esc(p.matric || '')} · ${esc(p.program || '')} · ${esc(p.semester || '')}</p>
       ${p.matric && p.matric !== me.student_id ? `<div class="err">The matric number on this slip (${esc(p.matric)}) differs from your student ID (${esc(me.student_id)}).</div>` : ''}
-      <table>${p.courses.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit}</td><td>${esc(c.grp)}</td></tr>`).join('')}</table>
+      <table><thead><tr><th>Code</th><th>Subject</th><th>Credits</th><th>Group</th></tr></thead><tbody>${p.courses.map((c) => `<tr><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${c.credit}</td><td>${esc(c.grp)}</td></tr>`).join('')}</tbody></table>
       <p><button id="ok" type="button">Save these ${p.courses.length} courses (replaces current list)</button></p>`;
+      prepareMobileTables(root.querySelector('#preview'));
       root.querySelector('#ok').onclick = async () => {
         await q(sb.rpc('save_courses', { items: p.courses, replace: true }));
         const patch = {};
@@ -1516,6 +1530,7 @@ async function pgExams(m) {
       document.getElementById('expv').innerHTML = `<h4>Found on the slip: ${esc(r.session || '')}${r.index_no ? ' · index number ' + esc(r.index_no) : ''}</h4>
       ${r.matric && r.matric !== me.student_id ? `<div class="err">The matric number on this slip (${esc(r.matric)}) differs from your student ID (${esc(me.student_id)}).</div>` : ''}
       ${examTable(r.exams)}<p><button id="exok" type="button">Save ${r.exams.length} subjects${slip ? ' (replaces the current slip)' : ''}</button></p>`;
+      prepareMobileTables(document.getElementById('expv'));
       document.getElementById('exok').onclick = async () => {
         await q(sb.from('exam_slips').upsert({ user_id: me.id, session: r.session, index_no: r.index_no, exams: r.exams, notices: r.notices, uploaded_at: new Date().toISOString() }));
         render();
@@ -1738,6 +1753,7 @@ async function pgAdmin(m) {
         <table><tr><th>No classes</th><th>Date</th><th>What</th></tr>${r.events.map((ev, i) => `<tr><td><input type="checkbox" style="width:auto" data-ev="${i}" ${ev.no_class ? 'checked' : ''}></td><td>${esc(fmtDate(ev.start))}${ev.end !== ev.start ? ' - ' + esc(fmtDate(ev.end)) : ''}</td><td>${esc(ev.title)}</td></tr>`).join('')}</table>
         <p class="mute">The short / additional semester is not imported.</p>
         <p><button id="acs">Save academic calendar (replaces the current one)</button></p>`;
+      prepareMobileTables(pv);
       document.getElementById('acs').onclick = async () => {
         pv.querySelectorAll('[data-ev]').forEach((c) => (r.events[c.dataset.ev].no_class = c.checked));
         try { await q(sb.rpc('admin_save_academic_calendar', { periods: r.periods, events: r.events })); render(); }
