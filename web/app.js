@@ -405,7 +405,7 @@ async function render() {
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 function prepareMobileTables(root) {
-  root.querySelectorAll('table:not(.registered-subjects):not(.subject-groups):not(.admin-data-tbl):not(.cal)').forEach((table) => {
+  root.querySelectorAll('table:not(.registered-subjects):not(.subject-groups):not(.users-tbl):not(.admin-data-tbl):not(.cal)').forEach((table) => {
     if (table.closest('.table-scroll')) return;
     const header = table.tHead?.rows[0] || [...table.rows].find((row) => row.querySelector('th'));
     if (!header) return;

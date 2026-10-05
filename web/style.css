@@ -245,11 +245,14 @@ footer .ver{margin-top:4px;color:var(--mute)}
 /* phones: each user becomes a small card with its buttons visible (no sideways scrolling) */
 @media(max-width:760px){
   .guest-shell nav{width:auto}.public-hero{grid-template-columns:1fr}.public-hero h2{font-size:25px}.public-cta{align-items:flex-start;flex-direction:column}.auth{max-width:100%}
-  .users-tbl,.users-tbl tbody{display:block}
+}
+
+@media(max-width:900px){
+  .users-tbl,.users-tbl tbody{display:block;width:100%}
   .users-tbl tr:first-child{display:none}
-  .users-tbl tr.qi{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .users-tbl tr.qi{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
   .users-tbl tr.qi[hidden]{display:none}
-  .users-tbl td{display:block;border:0;padding:0;white-space:normal;overflow-wrap:break-word;word-break:normal}
+  .users-tbl td{display:block;min-width:0;border:0;padding:0;white-space:normal;overflow-wrap:break-word;word-break:normal}
   .users-tbl .u-id{grid-column:1/-1;font-size:13px;color:var(--mute)}
   .users-tbl .u-name{grid-column:1/-1;margin-bottom:4px}.users-tbl .u-nm{font-weight:600}
   .users-tbl td[data-l]::before{content:attr(data-l) ": ";color:var(--mute);font-size:13px}
@@ -401,8 +404,6 @@ button,.btn,input,select,textarea{border-radius:7px}
   .mobile-stack td[data-label]::before{content:attr(data-label);display:block;margin-bottom:2px;color:var(--mute);font-size:11px;font-weight:600}
   .mobile-stack td[data-label="Subject"],.mobile-stack td[data-label="Item"],.mobile-stack td[data-label="What"],.mobile-stack td[data-label="Period"],.mobile-stack td[data-label="Venue"]{grid-column:1/-1}
   .mobile-stack td[data-label="Code"]{font-weight:600;white-space:nowrap}
-  .mobile-stack.users-tbl .u-acts{grid-column:1/-1}
-  .mobile-stack.users-tbl .acts{flex-wrap:wrap}
 }
 
 .wallpaper-recommendation{font-size:12px;margin:8px 0}
