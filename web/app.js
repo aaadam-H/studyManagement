@@ -13,7 +13,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.3';
+const APP_VERSION = '1.2.4';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -533,7 +533,8 @@ for (const ev of ['input', 'change']) document.addEventListener(ev, (e) => { if 
 // lecture / lab / tutorial, for colour-coding (the university page and the manual form use several spellings)
 const kindKey = (k) => { k = (k || '').trim(); return /^(LAB|LABORATORY|MAKMAL|PRACTICAL|P)$/i.test(k) ? 'lab' : /^(TUTORIAL|T)$/i.test(k) ? 'tut' : /^(LECTURE|KULIAH|L)$/i.test(k) ? 'lec' : 'oth'; };
 const KIND_LEGEND = '<div class="legend"><span class="k-lec">Lecture</span><span class="k-lab">Lab</span><span class="k-tut">Tutorial</span></div>';
-const clsHtml = (c) => `<div class="cls k-${kindKey(c.kind)}${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${[c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section)].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
+const classMetaHtml = (parts) => parts.filter(Boolean).map((part) => esc(part).replace(/\bonline\b/ig, '<span class="online-label">ONLINE</span>')).join(' · ');
+const clsHtml = (c) => `<div class="cls k-${kindKey(c.kind)}${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${classMetaHtml([c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section)])}</span></div></div>`;
 async function pgDashboard(m) {
   const [tt, asg, bul, ac] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*').order('due_date')), getBulletin(), getAcademic()]);
   const dow = new Date().getDay() || 7, t = localISO();
@@ -882,7 +883,7 @@ async function pgPublicHome(m) {
   <div class="card"><h3>Explore before you log in</h3><p class="sub">The public pages are view-only.</p><div class="feat"><div><b>Timetable</b><p class="mute">Browse the currently loaded university classes and groups.</p><a href="#/timetable">Open timetable</a></div><div><b>Bulletin</b><p class="mute">Read shared subject announcements, assignments and notices.</p><a href="#/bulletin">Open bulletin</a></div><div><b>Academic calendar</b><p class="mute">See semester periods, breaks and no-class dates.</p><a href="#/academic">Open calendar</a></div></div></div>`;
 }
 function publicClassHtml(item) {
-  return `<div class="cls public-cls k-${kindKey(item.kind)}" data-course="${esc(item.course_code)}" data-group="${esc(item.section || '')}" data-text="${esc([item.course_code, item.course_name, item.section, item.kind, item.venue, item.lecturer].filter(Boolean).join(' '))}"><div class="t">${esc(item.start_time)} - ${esc(item.end_time)}</div><div><b>${esc(item.course_code)}</b> ${esc(item.course_name || '')}<br><span class="mute">${[item.kind, item.venue, item.lecturer, item.section ? prettyGroup(item.section) : ''].filter(Boolean).map(esc).join(' · ')}</span></div></div>`;
+  return `<div class="cls public-cls k-${kindKey(item.kind)}" data-course="${esc(item.course_code)}" data-group="${esc(item.section || '')}" data-text="${esc([item.course_code, item.course_name, item.section, item.kind, item.venue, item.lecturer].filter(Boolean).join(' '))}"><div class="t">${esc(item.start_time)} - ${esc(item.end_time)}</div><div><b>${esc(item.course_code)}</b> ${esc(item.course_name || '')}<br><span class="mute">${classMetaHtml([item.kind, item.venue, item.lecturer, item.section ? prettyGroup(item.section) : ''])}</span></div></div>`;
 }
 async function pgPublicTimetable(m) {
   const data = await getGuestExampleTimetable();
