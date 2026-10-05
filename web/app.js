@@ -3,7 +3,7 @@ import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
 import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
-import { createZip } from './zip.js?v=1.2.6';
+import { createZip } from './zip.js?v=1.2.7';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.1.11';
 
 const CFG = window.STUDYHUB_CONFIG || {};
@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.6';
+const APP_VERSION = '1.2.7';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1109,7 +1109,7 @@ function calendarCard(tt, ac) {
     <button id="ics" type="button" class="${android || ios ? 'ghost' : ''}">Download .ics${android ? '' : ' (Apple / Outlook)'}</button>
     ${ios || android ? '' : `<a class="btn ghost-link" href="${esc(webcal)}">Subscribe in Apple Calendar</a>`}
   </div>${phoneHelp}</section>
-  <section class="calendar-mode" data-calendar-mode="separate" hidden><p class="mute">Subscribe to only the calendars you want. Add each one separately in Apple Calendar, then choose its color there.</p><div class="calendar-part-list">${CALENDAR_PARTS.map(([category, label]) => `<div><b>${label}</b><a class="btn ghost-link" href="${esc(feedUrl(category).replace(/^https:/, 'webcal:'))}">Subscribe</a></div>`).join('')}</div></section>
+  <section class="calendar-mode" data-calendar-mode="separate" hidden><p class="mute">Subscribe to only the calendars you want. Add each one separately in Apple Calendar, then choose its color there.</p><div class="calendar-part-list">${CALENDAR_PARTS.map(([category, label]) => `<div><b>${label}</b><a class="btn ghost-link calendar-subscribe" href="${esc(feedUrl(category).replace(/^https:/, 'webcal:'))}" data-feed-url="${esc(feedUrl(category))}">Subscribe</a></div>`).join('')}</div></section>
   <section class="calendar-mode" data-calendar-mode="package" hidden><p class="mute">Download a ZIP containing separate .ics files for each class type and holidays. Import the calendars you want, then set their colors in Apple Calendar.</p><button type="button" id="ics-package">Download calendar package</button></section>
   <div id="icm" aria-live="polite"></div>
   <details><summary>Live link and help</summary>
@@ -1125,6 +1125,20 @@ function wireCalendarCard(m) {
   const msg = document.getElementById('icm');
   const mode = document.getElementById('calendar-mode');
   mode.onchange = () => m.querySelectorAll('[data-calendar-mode]').forEach((section) => { section.hidden = section.dataset.calendarMode !== mode.value; });
+  m.querySelectorAll('.calendar-subscribe').forEach((link) => link.addEventListener('click', (event) => {
+    store.set('sh_cal_' + me.id, '1');
+    if (!isIOS || !isInstalled()) return;
+    event.preventDefault();
+    const url = link.dataset.feedUrl;
+    msg.innerHTML = `<div class="phone-help" role="status"><b>Finish adding this calendar in iPhone Settings</b><ol><li>Tap <b>Copy calendar link</b> below.</li><li>Open Settings &rsaquo; Apps &rsaquo; Calendar &rsaquo; Calendar Accounts &rsaquo; Add Account &rsaquo; Other &rsaquo; Add Subscribed Calendar.</li><li>Paste the link and tap <b>Next</b>, then <b>Save</b>.</li></ol><div class="row"><input id="subscribe-url" readonly value="${esc(url)}"><button type="button" id="copy-subscribe-url">Copy calendar link</button></div><span id="subscribe-copy-status" class="mute" aria-live="polite"></span><p class="mute">Settings labels can vary slightly by iOS version. This calendar stays subscribed and updates automatically.</p></div>`;
+    document.getElementById('copy-subscribe-url').onclick = async () => {
+      const field = document.getElementById('subscribe-url');
+      const status = document.getElementById('subscribe-copy-status');
+      try { await navigator.clipboard.writeText(url); status.textContent = 'Link copied. Paste it into Settings to finish.'; }
+      catch { field.focus(); field.select(); status.textContent = 'Select the link and copy it, then paste it into Settings.'; }
+    };
+    msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }));
   m.querySelectorAll('#ics, .card:has(#ics) a.btn, .cpy').forEach((el) => el.addEventListener('click', () => store.set('sh_cal_' + me.id, '1')));
   document.getElementById('ics').onclick = async () => {
     try {

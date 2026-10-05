@@ -81,8 +81,8 @@ input[type=date],input[type=time],input[type=datetime-local]{-webkit-appearance:
 .content>footer{grid-column:1/-1;grid-row:2}
 .guest-shell .content{grid-template-columns:minmax(0,1fr)}
 .guest-shell .content>footer{grid-column:1}
-.account-rail{flex:0 0 250px;padding:24px 16px 24px 0;border-left:1px solid var(--line)}
-.account-panel{position:sticky;top:16px;display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+.account-rail{position:sticky;top:16px;align-self:start;flex:0 0 250px;padding:24px 16px 24px 0;border-left:1px solid var(--line)}
+.account-panel{display:flex;flex-direction:column;gap:9px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
 .account-panel h2{font-size:16px;margin:0 0 3px}
 .account-name{overflow-wrap:anywhere}
 .account-id{font-size:13px;color:var(--mute);overflow-wrap:anywhere}
@@ -221,9 +221,9 @@ footer .ver{margin-top:4px;color:var(--mute)}
 .public-hero{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(220px,1fr);gap:18px;align-items:stretch;padding:20px}.public-hero h2{font-size:30px;line-height:1.15;margin:7px 0 10px;max-width:760px}.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:12px;font-weight:700;color:var(--brand)}.lead{font-size:17px;color:var(--mute);max-width:760px}.hero-note{background:var(--bg);border:1px dashed var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;justify-content:center;gap:8px}.hero-note b{font-size:15px}.hero-note span{color:var(--mute);font-size:14px}.public-stats .card{margin-bottom:0}.public-stats{margin-bottom:14px}.public-cta{display:flex;gap:16px;align-items:center;justify-content:space-between;border-left:4px solid var(--brand)}.public-cta>div{min-width:0}.public-cta p{margin:4px 0 0}.public-filters{align-items:end}.public-day{margin-bottom:12px}.public-cls[hidden],.public-day[hidden],.public-post[hidden],.public-bgroup[hidden]{display:none!important}
 .auth{max-width:760px}.auth-video{padding:12px;overflow:hidden}.video-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:4px 4px 10px}.video-head h3{margin:0 0 2px}.video-head p{margin:0}.auth-video video{display:block;width:100%;aspect-ratio:16/9;background:#080b14;border-radius:8px}.video-points{display:flex;gap:8px;flex-wrap:wrap;padding:10px 4px 2px}.video-points span{font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:99px;color:var(--mute)}.auth-guest{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;margin:14px 0 2px}.auth-reason{max-width:100%;border-left:4px solid var(--brand);padding:12px 14px}.auth-reason p{margin:4px 0 0;color:var(--mute)}
 .admin-data-tbl{min-width:900px}.table-scroll{max-width:100%;overflow-x:auto}
-@media(min-width:761px){.shell>nav{position:relative;inset:auto;height:auto;min-height:100vh;flex:0 0 220px}.shell>.content{margin-left:0}.guest-shell>nav{width:210px;flex-basis:210px}.guest-shell>.content{margin-left:0}}
-@media(min-width:761px) and (max-width:1000px){.content{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto}.content main{grid-column:1;grid-row:1}.content>.account-rail{grid-column:1;grid-row:2;flex-basis:auto;padding:14px;border-left:0;border-top:1px solid var(--line)}.content>footer{grid-column:1;grid-row:3}.account-panel{position:static;display:grid;grid-template-columns:1fr 1fr;align-items:center}.account-panel h2,.account-link.external{border-top:0;padding-top:0}}
-@media(max-width:760px){.shell>nav{position:relative;inset:auto;height:auto;min-height:0}.shell>.content{margin-left:0}}
+@media(min-width:761px){.shell>nav{position:sticky;top:0;align-self:flex-start;height:100vh;min-height:100vh;flex:0 0 220px}.shell>.content{margin-left:0}.guest-shell>nav{width:210px;flex-basis:210px}.guest-shell>.content{margin-left:0}.account-rail{align-self:start}}
+@media(min-width:761px) and (max-width:1000px){.content{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto}.content main{grid-column:1;grid-row:1;padding-right:220px}.content>.account-rail{position:fixed;z-index:25;top:0;right:0;width:205px;height:100vh;flex:none;padding:12px;border-left:1px solid var(--line);background:var(--bg)}.account-panel{position:static}.content>footer{grid-column:1;grid-row:2}}
+@media(max-width:760px){.shell>nav{position:sticky;top:0;z-index:30;inset:auto;height:auto;min-height:0}.shell>.content{margin-left:0}}
 .users-tbl .u-nm{font-weight:inherit}
 /* phones: each user becomes a small card with its buttons visible (no sideways scrolling) */
 @media(max-width:760px){
@@ -331,6 +331,21 @@ button,.btn,input,select,textarea{border-radius:7px}
   .account-rail{padding:14px}
 }
 @media(max-width:760px){.account-rail{flex:0 0 auto;border-left:0;border-top:1px solid var(--line);padding:14px}.account-panel{position:static}.maintenance-screen{padding:16px}.maintenance-notice{padding:18px}}
+@media(max-width:760px){
+  .content>.account-rail{position:fixed;z-index:20;top:57px;left:0;right:0;width:auto;height:auto;flex:none;padding:0 10px 8px;border:0;background:var(--bg)}
+  .account-panel{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1px 10px;padding:7px 10px;border:1px solid var(--line);box-shadow:0 3px 12px #07131a20}
+  .account-panel h2{display:none}
+  .account-name{grid-column:1;grid-row:1;font-size:13px;line-height:1.25}
+  .account-id{grid-column:1;grid-row:2;font-size:12px}
+  .account-link{display:block;padding:2px 0;font-size:12px;line-height:1.25}
+  .account-link:not(.external){grid-column:1;grid-row:3}
+  .account-link.external{grid-column:2;grid-row:3;border:0;padding:2px 0}
+  .account-preview,.account-logout{grid-column:2;grid-row:1 / span 2;width:auto;margin:0;padding:6px 10px;min-height:34px;font-size:12px}
+  .account-preview{margin-right:72px}
+  .account-logout{position:absolute;right:10px;top:7px}
+  .content main{padding-top:142px}
+  .content>footer{margin-bottom:88px}
+}
 .calendar-mode{margin-top:12px}
 .calendar-part-list{display:grid;margin-top:8px}
 .calendar-part-list>div{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line)}
