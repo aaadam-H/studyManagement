@@ -992,6 +992,7 @@ function drawTimetableWallpaper(canvas, tt, options) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const width = canvas.width, height = canvas.height, scale = Math.min(width / 1080, height / 1920 * 1.35), margin = Math.round(width * 0.063);
+  const topSafe = Math.max(margin, Math.round(height * 0.12)), bottomSafe = Math.max(margin, Math.round(height * 0.07));
   const colors = { ...(WALLPAPER_PALETTES[options.palette] || WALLPAPER_PALETTES.midnight), ...options.colors };
   const classesByDay = Array.from({ length: 7 }, (_, index) => ({ day: index + 1, items: tt.classes.filter((item) => item.day === index + 1) })).filter((day) => day.items.length);
   const roundedRect = (x, y, w, h, r) => {
@@ -1001,7 +1002,7 @@ function drawTimetableWallpaper(canvas, tt, options) {
   };
   ctx.fillStyle = colors.bg; ctx.fillRect(0, 0, width, height);
   const showTitle = options.showTitle;
-  let y = margin;
+  let y = topSafe;
   if (showTitle) {
     const titleSize = Math.round(48 * scale);
     ctx.fillStyle = colors.accent; ctx.fillRect(margin, y, Math.max(5, 8 * scale), 132 * scale);
@@ -1018,7 +1019,7 @@ function drawTimetableWallpaper(canvas, tt, options) {
     y += 34 * scale;
   }
   y += 10 * scale;
-  const bottom = height - margin;
+  const bottom = height - bottomSafe;
   const rows = classesByDay.reduce((sum, day) => sum + day.items.length, 0);
   const dayHeaderHeight = 38 * scale, rowHeight = Math.max(31 * scale, Math.min(82 * scale, (bottom - y - classesByDay.length * dayHeaderHeight) / Math.max(rows, 1)));
   const fitText = (text, maxWidth) => {
@@ -1061,7 +1062,7 @@ function drawTimetableWallpaper(canvas, tt, options) {
     y += 5 * scale;
   }
   ctx.fillStyle = colors.subtle; ctx.font = `${16 * scale}px system-ui, sans-serif`;
-  ctx.fillText('STUDYHUB  ·  WEEKLY SCHEDULE', margin, height - margin / 2);
+  ctx.fillText('STUDYHUB  ·  WEEKLY SCHEDULE', margin, height - bottomSafe / 2);
 }
 async function pgTimetable(m) {
   const [tt, ac] = await Promise.all([getTimetable(), getAcademic()]);
@@ -1090,7 +1091,7 @@ async function pgTimetable(m) {
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
   ${noData ? `<div class="card">The university timetable has not been loaded yet. ${isAdmin() ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
   <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}</span></div>${weekHtml(tt)}</section>
-  <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Choose the layout, size, colors and details. The preview updates as you change options.</p></div><div class="wallpaper-controls">
+  <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Choose the layout, size, colors and details. The preview keeps content clear of phone notches and home indicators.</p></div><div class="wallpaper-controls">
     <div class="wallpaper-selects"><label>Orientation<select id="wallpaper-orientation"><option value="auto">Auto (match device)</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label><label>Image size<select id="wallpaper-size"></select></label><label>Color palette<select id="wallpaper-palette">${[['midnight','Midnight'],['paper','Paper (light)'],['ocean','Ocean'],['forest','Forest'],['rose','Rose'],['sunset','Sunset'],['lavender','Lavender'],['contrast','High contrast']].map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label></div>
     <p class="wallpaper-recommendation mute" id="wallpaper-recommendation"></p>
     <details class="wallpaper-custom-colors"><summary>Choose individual colors</summary><div class="wallpaper-color-grid">
