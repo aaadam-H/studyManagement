@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.17';
+const APP_VERSION = '1.2.18';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -981,7 +981,7 @@ function wallpaperSizeOptions(orientation) {
 function readWallpaperOptions() {
   try {
     const saved = JSON.parse(localStorage.getItem('studyhub.wallpaper-options.v1') || '{}');
-    const palette = WALLPAPER_PALETTES[saved.palette] ? saved.palette : saved.theme === 'light' ? 'paper' : WALLPAPER_DEFAULTS.palette;
+    const palette = Object.hasOwn(WALLPAPER_PALETTES, saved.palette) ? saved.palette : saved.theme === 'light' ? 'paper' : WALLPAPER_DEFAULTS.palette;
     const colors = Object.fromEntries(WALLPAPER_COLOR_KEYS.filter((key) => /^#[0-9a-f]{6}$/i.test(saved.colors?.[key] || '')).map((key) => [key, saved.colors[key]]));
     return { ...WALLPAPER_DEFAULTS, ...saved, palette, colors, orientation: ['auto', 'portrait', 'landscape'].includes(saved.orientation) ? saved.orientation : 'auto', size: saved.size === 'auto' || WALLPAPER_SIZES[saved.size] ? saved.size : 'auto' };
   } catch { return { ...WALLPAPER_DEFAULTS }; }
@@ -1105,7 +1105,7 @@ async function pgTimetable(m) {
   ${noData ? `<div class="card">The university timetable has not been loaded yet. ${isAdmin() ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
   <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}</span></div>${weekHtml(tt)}</section>
   <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Choose the layout, size, colors and details. The preview keeps content clear of phone notches and home indicators.</p></div><div class="wallpaper-controls">
-    <div class="wallpaper-selects"><label>Orientation<select id="wallpaper-orientation"><option value="auto">Auto (match device)</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label><label>Image size<select id="wallpaper-size"></select></label><label>Color palette<select id="wallpaper-palette">${[['midnight','Midnight'],['paper','Paper (light)'],['ocean','Ocean'],['forest','Forest'],['rose','Rose'],['sunset','Sunset'],['lavender','Lavender'],['contrast','High contrast']].map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label></div>
+    <div class="wallpaper-selects"><label>Orientation<select id="wallpaper-orientation" data-plain><option value="auto">Auto (match device)</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label><label>Image size<select id="wallpaper-size" data-plain></select></label><label>Color palette<select id="wallpaper-palette" data-plain>${[['midnight','Midnight'],['paper','Paper (light)'],['ocean','Ocean'],['forest','Forest'],['rose','Rose'],['sunset','Sunset'],['lavender','Lavender'],['contrast','High contrast']].map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label></div>
     <p class="wallpaper-recommendation mute" id="wallpaper-recommendation"></p>
     <details class="wallpaper-custom-colors"><summary>Choose individual colors</summary><div class="wallpaper-color-grid">
       ${[['bg','Background'],['card','Class cards'],['ink','Subject text'],['mute','Details text'],['accent','Accent'],['lecture','Lecture'],['lab','Lab'],['tutorial','Tutorial'],['other','Other class']].map(([key,label]) => `<label>${label}<input type="color" data-wallpaper-color="${key}"></label>`).join('')}
@@ -1165,16 +1165,29 @@ async function pgTimetable(m) {
   const currentWallpaperOptions = () => ({ orientation: wallpaperOrientationSelect.value, size: wallpaperSize.value, palette: wallpaperPalette.value,
     colors: Object.fromEntries(wallpaperColorInputs.map((input) => [input.dataset.wallpaperColor, input.value])),
     ...Object.fromEntries(wallpaperToggles.map((input) => [input.dataset.wallpaperOption, input.checked])) });
-  const refreshWallpaper = () => {
+  const drawWallpaperPreview = () => {
     const options = currentWallpaperOptions();
     const orientation = wallpaperOrientation(options.orientation);
     const size = options.size === 'auto' ? wallpaperRecommendedSize(orientation) : options.size;
     const [width, height] = WALLPAPER_SIZES[size] || WALLPAPER_SIZES[wallpaperRecommendedSize(orientation)];
-    wallpaper.width = width; wallpaper.height = height; wallpaper.style.aspectRatio = `${width} / ${height}`;
-    drawTimetableWallpaper(wallpaper, tt, options);
+    // Changing either dimension clears and reallocates the canvas. Only resize
+    // when needed, especially while dragging a color picker on iPhone.
+    if (wallpaper.width !== width) wallpaper.width = width;
+    if (wallpaper.height !== height) wallpaper.height = height;
+    wallpaper.style.aspectRatio = `${width} / ${height}`;
+    try { drawTimetableWallpaper(wallpaper, tt, options); }
+    catch (error) { flash(m.querySelector('#wallpaper-msg'), 'Could not update the preview: ' + error.message); return; }
     const message = m.querySelector('#wallpaper-msg');
     if (message) message.textContent = `${width} × ${height} px PNG${options.size === 'auto' ? ' · recommended' : ''}`;
     try { localStorage.setItem('studyhub.wallpaper-options.v1', JSON.stringify(options)); } catch {}
+  };
+  let previewFrame = null;
+  const refreshWallpaper = () => {
+    if (previewFrame !== null) return;
+    previewFrame = requestAnimationFrame(() => {
+      previewFrame = null;
+      if (wallpaper.isConnected) drawWallpaperPreview();
+    });
   };
   updateWallpaperColorInputs();
   populateWallpaperSizes();
@@ -1182,15 +1195,20 @@ async function pgTimetable(m) {
   wallpaperPalette.onchange = () => { updateWallpaperColorInputs({}); refreshWallpaper(); };
   wallpaperSize.onchange = refreshWallpaper;
   wallpaperToggles.forEach((input) => { input.onchange = refreshWallpaper; });
-  wallpaperColorInputs.forEach((input) => { input.oninput = refreshWallpaper; });
-  refreshWallpaper();
-  m.querySelector('#download-wallpaper').onclick = () => wallpaper.toBlob((blob) => {
-    if (!blob) return flash(m.querySelector('#wallpaper-msg'), 'Could not create the wallpaper. Please try again.');
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob); link.download = `studyhub-timetable-${wallpaper.width}x${wallpaper.height}.png`;
-    document.body.appendChild(link); link.click(); link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
-  }, 'image/png');
+  wallpaperColorInputs.forEach((input) => { input.oninput = refreshWallpaper; input.onchange = refreshWallpaper; });
+  drawWallpaperPreview();
+  m.querySelector('#download-wallpaper').onclick = () => {
+    // Export the latest edits even if their animation frame has not run yet.
+    if (previewFrame !== null) { cancelAnimationFrame(previewFrame); previewFrame = null; }
+    drawWallpaperPreview();
+    wallpaper.toBlob((blob) => {
+      if (!blob) return flash(m.querySelector('#wallpaper-msg'), 'Could not create the wallpaper. Please try again.');
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob); link.download = `studyhub-timetable-${wallpaper.width}x${wallpaper.height}.png`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+    }, 'image/png');
+  };
   const mg = document.getElementById('mg');
   if (mg) mg.onchange = async () => { me = await q(sb.from('profiles').update({ subgroup: mg.value || null }).eq('id', me.id).select().single()); render(); };
   m.querySelectorAll('.cg').forEach((s) => (s.onchange = async () => {
