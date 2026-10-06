@@ -464,3 +464,9 @@ button,.btn,input,select,textarea{border-radius:7px}
 @media(min-width:761px) and (max-width:899px){
   .content main>.dashboard-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+.wallpaper-font-size{display:block;margin:12px 0 0}
+.wallpaper-font-size>span{display:flex;justify-content:space-between;gap:12px}
+.wallpaper-font-size output{font-variant-numeric:tabular-nums;color:var(--ink)}
+.wallpaper-font-size input[type=range]{width:100%;min-height:44px;padding:0;accent-color:var(--brand)}
+#wallpaper-font-size-help{font-size:12px;margin:0 0 8px}

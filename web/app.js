@@ -960,7 +960,11 @@ const WALLPAPER_PALETTES = {
   contrast: { bg: '#000000', card: '#171717', ink: '#ffffff', mute: '#dedede', accent: '#ffe600', day: '#ffffff', subtle: '#d2d2d2', lecture: '#668cff', lab: '#00d28d', tutorial: '#00c6e8', other: '#ffad42' },
 };
 const WALLPAPER_COLOR_KEYS = ['bg', 'card', 'ink', 'mute', 'accent', 'lecture', 'lab', 'tutorial', 'other'];
-const WALLPAPER_DEFAULTS = { orientation: 'auto', size: 'auto', palette: 'midnight', colors: {}, showTitle: true, showGroup: true, showCode: true, showType: true, showVenue: true, showLecturer: false, showSection: false, showDayCounts: false };
+const WALLPAPER_DEFAULTS = { orientation: 'auto', size: 'auto', palette: 'midnight', colors: {}, fontSize: 100, showTitle: true, showGroup: true, showCode: true, showType: true, showVenue: true, showLecturer: false, showSection: false, showDayCounts: false };
+function wallpaperFontSize(value) {
+  const size = Number(value);
+  return Number.isFinite(size) && size > 0 ? Math.min(150, Math.max(75, size)) : WALLPAPER_DEFAULTS.fontSize;
+}
 function wallpaperOrientation(choice = 'auto') {
   if (choice === 'portrait' || choice === 'landscape') return choice;
   return window.matchMedia?.('(orientation: landscape)').matches || (window.screen?.width || window.innerWidth) > (window.screen?.height || window.innerHeight) ? 'landscape' : 'portrait';
@@ -983,7 +987,7 @@ function readWallpaperOptions() {
     const saved = JSON.parse(localStorage.getItem('studyhub.wallpaper-options.v1') || '{}');
     const palette = Object.hasOwn(WALLPAPER_PALETTES, saved.palette) ? saved.palette : saved.theme === 'light' ? 'paper' : WALLPAPER_DEFAULTS.palette;
     const colors = Object.fromEntries(WALLPAPER_COLOR_KEYS.filter((key) => /^#[0-9a-f]{6}$/i.test(saved.colors?.[key] || '')).map((key) => [key, saved.colors[key]]));
-    return { ...WALLPAPER_DEFAULTS, ...saved, palette, colors, orientation: ['auto', 'portrait', 'landscape'].includes(saved.orientation) ? saved.orientation : 'auto', size: saved.size === 'auto' || WALLPAPER_SIZES[saved.size] ? saved.size : 'auto' };
+    return { ...WALLPAPER_DEFAULTS, ...saved, palette, colors, fontSize: wallpaperFontSize(saved.fontSize), orientation: ['auto', 'portrait', 'landscape'].includes(saved.orientation) ? saved.orientation : 'auto', size: saved.size === 'auto' || WALLPAPER_SIZES[saved.size] ? saved.size : 'auto' };
   } catch { return { ...WALLPAPER_DEFAULTS }; }
 }
 function weekHtml(tt) {
@@ -1004,7 +1008,7 @@ function timetableHtml(tt) {
 function drawTimetableWallpaper(canvas, tt, options) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  const width = canvas.width, height = canvas.height, scale = Math.min(width / 1080, height / 1920 * 1.35), margin = Math.round(width * 0.063);
+  const width = canvas.width, height = canvas.height, scale = Math.min(width / 1080, height / 1920 * 1.35) * wallpaperFontSize(options.fontSize) / 100, margin = Math.round(width * 0.063);
   const topSafe = Math.max(margin, Math.round(height * 0.12)), bottomSafe = Math.max(margin, Math.round(height * 0.07));
   const colors = { ...(WALLPAPER_PALETTES[options.palette] || WALLPAPER_PALETTES.midnight), ...options.colors };
   const classesByDay = Array.from({ length: 7 }, (_, index) => ({ day: index + 1, items: tt.classes.filter((item) => item.day === index + 1) })).filter((day) => day.items.length);
@@ -1036,9 +1040,12 @@ function drawTimetableWallpaper(canvas, tt, options) {
   const rows = classesByDay.reduce((sum, day) => sum + day.items.length, 0);
   const dayHeaderHeight = 38 * scale, rowHeight = Math.max(31 * scale, Math.min(82 * scale, (bottom - y - classesByDay.length * dayHeaderHeight) / Math.max(rows, 1)));
   const fitText = (text, maxWidth) => {
-    let result = String(text || 'Class');
-    while (result && ctx.measureText(result).width > maxWidth) result = `${result.slice(0, -2)}…`;
-    return result;
+    const full = String(text || 'Class');
+    if (ctx.measureText(full).width <= maxWidth) return full;
+    if (ctx.measureText('…').width > maxWidth) return '';
+    let length = full.length;
+    while (length > 0 && ctx.measureText(`${full.slice(0, length)}…`).width > maxWidth) length--;
+    return `${full.slice(0, length)}…`;
   };
   for (const day of classesByDay) {
     ctx.fillStyle = colors.day; ctx.font = `700 ${23 * scale}px system-ui, sans-serif`; ctx.fillText(DAYN[day.day].toUpperCase(), margin, y + 27 * scale);
@@ -1053,9 +1060,9 @@ function drawTimetableWallpaper(canvas, tt, options) {
       const compact = cardH < 58 * scale;
       const fontSize = compact ? Math.max(12 * scale, Math.floor(cardH * 0.42)) : 19 * scale;
       ctx.fillStyle = colors.ink; ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
-      const timeX = margin + 22 * scale, textX = margin + 220 * scale, textWidth = width - margin - textX - 22 * scale;
+      const timeX = margin + 22 * scale, textX = margin + Math.min(220 * scale, (width - margin * 2) * 0.32), textWidth = width - margin - textX - 22 * scale;
       const textY = compact ? cardY + Math.max(fontSize + 3 * scale, cardH - 7 * scale) : cardY + 27 * scale;
-      ctx.fillText(`${item.start_time}–${item.end_time}`, timeX, textY);
+      ctx.fillText(fitText(`${item.start_time}–${item.end_time}`, textX - timeX - 12 * scale), timeX, textY);
       ctx.fillText(fitText(item.course_name || item.title || 'Class', textWidth), textX, textY);
       if (!compact) {
         const details = [
@@ -1107,6 +1114,7 @@ async function pgTimetable(m) {
   <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Choose the layout, size, colors and details. The preview keeps content clear of phone notches and home indicators.</p></div><div class="wallpaper-controls">
     <div class="wallpaper-selects"><label>Orientation<select id="wallpaper-orientation" data-plain><option value="auto">Auto (match device)</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label><label>Image size<select id="wallpaper-size" data-plain></select></label><label>Color palette<select id="wallpaper-palette" data-plain>${[['midnight','Midnight'],['paper','Paper (light)'],['ocean','Ocean'],['forest','Forest'],['rose','Rose'],['sunset','Sunset'],['lavender','Lavender'],['contrast','High contrast']].map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label></div>
     <p class="wallpaper-recommendation mute" id="wallpaper-recommendation"></p>
+    <label class="wallpaper-font-size" for="wallpaper-font-size"><span>Font size <output id="wallpaper-font-size-value" for="wallpaper-font-size">100%</output></span><input id="wallpaper-font-size" type="range" min="75" max="150" step="5" value="100" aria-describedby="wallpaper-font-size-help"></label><p class="mute" id="wallpaper-font-size-help">Slide left for smaller text or right for larger text. Long names are shortened to fit.</p>
     <details class="wallpaper-custom-colors"><summary>Choose individual colors</summary><div class="wallpaper-color-grid">
       ${[['bg','Background'],['card','Class cards'],['ink','Subject text'],['mute','Details text'],['accent','Accent'],['lecture','Lecture'],['lab','Lab'],['tutorial','Tutorial'],['other','Other class']].map(([key,label]) => `<label>${label}<input type="color" data-wallpaper-color="${key}"></label>`).join('')}
     </div><p class="mute">Choose a palette above to reset these colors.</p></details>
@@ -1147,11 +1155,16 @@ async function pgTimetable(m) {
   const wallpaperOrientationSelect = m.querySelector('#wallpaper-orientation');
   const wallpaperPalette = m.querySelector('#wallpaper-palette');
   const wallpaperSize = m.querySelector('#wallpaper-size');
+  const wallpaperFontSizeInput = m.querySelector('#wallpaper-font-size');
+  const wallpaperFontSizeValue = m.querySelector('#wallpaper-font-size-value');
   const wallpaperToggles = [...m.querySelectorAll('[data-wallpaper-option]')];
   const wallpaperColorInputs = [...m.querySelectorAll('[data-wallpaper-color]')];
   const wallpaperOptions = readWallpaperOptions();
   wallpaperOrientationSelect.value = wallpaperOptions.orientation;
   wallpaperPalette.value = wallpaperOptions.palette;
+  wallpaperFontSizeInput.value = wallpaperOptions.fontSize;
+  const updateWallpaperFontSizeLabel = () => { wallpaperFontSizeValue.textContent = `${wallpaperFontSizeInput.value}%`; };
+  updateWallpaperFontSizeLabel();
   wallpaperToggles.forEach((input) => { input.checked = wallpaperOptions[input.dataset.wallpaperOption]; });
   const updateWallpaperColorInputs = (savedColors = wallpaperOptions.colors) => wallpaperColorInputs.forEach((input) => { input.value = savedColors[input.dataset.wallpaperColor] || WALLPAPER_PALETTES[wallpaperPalette.value][input.dataset.wallpaperColor]; });
   const populateWallpaperSizes = (selection = wallpaperOptions.size) => {
@@ -1162,7 +1175,7 @@ async function pgTimetable(m) {
     wallpaperSize.value = selection !== 'auto' && available.includes(selection) ? selection : 'auto';
     m.querySelector('#wallpaper-recommendation').textContent = `Recommended for this device: ${recommended.replace('x', ' × ')} px (${orientation})`;
   };
-  const currentWallpaperOptions = () => ({ orientation: wallpaperOrientationSelect.value, size: wallpaperSize.value, palette: wallpaperPalette.value,
+  const currentWallpaperOptions = () => ({ orientation: wallpaperOrientationSelect.value, size: wallpaperSize.value, palette: wallpaperPalette.value, fontSize: wallpaperFontSize(wallpaperFontSizeInput.value),
     colors: Object.fromEntries(wallpaperColorInputs.map((input) => [input.dataset.wallpaperColor, input.value])),
     ...Object.fromEntries(wallpaperToggles.map((input) => [input.dataset.wallpaperOption, input.checked])) });
   const drawWallpaperPreview = () => {
@@ -1194,6 +1207,7 @@ async function pgTimetable(m) {
   wallpaperOrientationSelect.onchange = () => { populateWallpaperSizes(wallpaperSize.value); refreshWallpaper(); };
   wallpaperPalette.onchange = () => { updateWallpaperColorInputs({}); refreshWallpaper(); };
   wallpaperSize.onchange = refreshWallpaper;
+  wallpaperFontSizeInput.oninput = wallpaperFontSizeInput.onchange = () => { updateWallpaperFontSizeLabel(); refreshWallpaper(); };
   wallpaperToggles.forEach((input) => { input.onchange = refreshWallpaper; });
   wallpaperColorInputs.forEach((input) => { input.oninput = refreshWallpaper; input.onchange = refreshWallpaper; });
   drawWallpaperPreview();
