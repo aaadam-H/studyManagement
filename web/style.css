@@ -410,14 +410,14 @@ button,.btn,input,select,textarea{border-radius:7px}
 .wallpaper-custom-colors{margin-top:8px;padding-top:6px;border-top:1px solid var(--line)}
 .wallpaper-custom-colors>summary{font-weight:600}
 .wallpaper-color-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
-.wallpaper-color-grid label{display:grid;grid-template-columns:minmax(0,1fr) 38px;align-items:center;gap:6px;min-width:0;margin:0;color:var(--ink);font-size:12px;overflow-wrap:normal;word-break:normal}
+.wallpaper-color-grid label{display:flex;align-items:center;justify-content:flex-start;gap:8px;min-width:0;margin:0;color:var(--ink);font-size:12px;overflow-wrap:normal;word-break:normal}
 .wallpaper-color-grid input[type=color]{width:38px;min-width:38px;height:32px;min-height:32px;padding:2px;cursor:pointer}
 
 /* Keep ordinary words intact on narrow screens; only break genuinely long tokens. */
 @media(max-width:600px){
   .card{overflow-wrap:break-word}
   .wallpaper-color-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
-  .wallpaper-color-grid label{grid-template-columns:minmax(0,1fr) 38px;font-size:13px}
+  .wallpaper-color-grid label{font-size:13px}
   .video-head{align-items:flex-start}
   .video-head>div{min-width:0;flex:1 1 auto}
   .video-head>.tag{flex:0 0 auto;white-space:nowrap}
