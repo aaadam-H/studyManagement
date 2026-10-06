@@ -475,3 +475,10 @@ button,.btn,input,select,textarea{border-radius:7px}
 .wallpaper-card{grid-template-columns:minmax(0,1fr) minmax(300px,360px)}
 .wallpaper-card canvas{width:100%;max-width:360px}
 @media(max-width:600px){.wallpaper-card canvas{width:min(100%,360px);max-width:360px}}
+
+.wallpaper-zoom-dialog{width:max-content;max-width:94vw;max-height:94vh;margin:auto;padding:14px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 18px 60px #0008;overflow:hidden}
+.wallpaper-zoom-dialog::backdrop{background:#000b}
+.wallpaper-zoom-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}
+.wallpaper-zoom-head h3{margin:0}
+#timetable-wallpaper-zoom{display:block;width:auto;height:auto;max-width:calc(94vw - 32px);max-height:calc(86vh - 72px);object-fit:contain;margin:0 auto}
+@supports (height:100dvh){.wallpaper-zoom-dialog{max-height:94dvh}#timetable-wallpaper-zoom{max-height:calc(86dvh - 72px)}}
