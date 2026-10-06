@@ -310,19 +310,168 @@ const NAV_GROUPS = [
   ['Planning', ['assignments', 'calendar', 'academic', 'notes']],
   ['Community', ['bulletin', 'feedback', 'changelog']],
   ['Account & Help', ['profile', 'help']],
-  ['Administration', ['admin', 'admin-subjects', 'admin-registrations', 'admin-changelog']],
 ];
 function navigationHtml(routes, key) {
-  return NAV_GROUPS.map(([label, keys]) => {
+  const link = (route) => {
+    const badge = route === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : route === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : '';
+    return `<a href="#/${route}" class="${route === key ? 'on' : ''}">${routes[route][0]}${badge}</a>`;
+  };
+  const groups = NAV_GROUPS.map(([label, keys]) => {
     const links = keys.filter((route) => routes[route]);
     if (!links.length) return '';
-    return `<section class="nav-group"><h2 class="nav-group-title">${label}</h2><div class="nav-group-links">${links.map((route) => {
-      const badge = route === 'feedback' ? ' <span class="badge" id="fb-badge" hidden></span>' : route === 'bulletin' ? ' <span class="badge" id="bl-badge" hidden></span>' : '';
-      return `<a href="#/${route}" class="${route === key ? 'on' : ''}">${routes[route][0]}${badge}</a>`;
-    }).join('')}</div></section>`;
+    return `<section class="nav-group"><h2 class="nav-group-title">${label}</h2><div class="nav-group-links">${links.map(link).join('')}</div></section>`;
   }).join('');
+  if (!routes.admin) return groups;
+  const tools = ['admin-settings', 'admin-users', 'admin-subjects', 'admin-registrations', 'admin-changelog'].filter((route) => routes[route]);
+  const expanded = tools.includes(key) || key === 'admin' && location.hash.includes('/user/');
+  return `${groups}<section class="nav-group nav-admin-group"><h2 class="nav-group-title">Administration</h2><div class="nav-group-links">${link('admin')}</div><details class="nav-admin-tools" ${expanded ? 'open' : ''}><summary>Admin tools</summary><div class="nav-group-links">${tools.map(link).join('')}</div></details></section>`;
 }
 const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
+let universalSearchCache = null, universalSearchCacheAt = 0, universalSearchKeyboardWired = false, universalSearchOutsideHandler = null;
+function invalidateUniversalSearchCache() {
+  universalSearchCache = null;
+  universalSearchCacheAt = 0;
+}
+async function buildUniversalSearchIndex(routes) {
+  const items = Object.entries(routes).map(([key, value]) => ({
+    title: value[0], detail: 'Open page', type: 'Page', href: '#/' + key,
+    text: `${value[0]} ${key.replaceAll('-', ' ')}`.toLowerCase(),
+  }));
+  if (!me) return items;
+  const requests = [
+    myCourses(),
+    getTimetable(),
+    q(sb.from('assignments').select('*').order('due_date')),
+    q(sb.from('notes').select('*')),
+    q(sb.from('grades').select('*')),
+    getBulletin(),
+    getAcademic(),
+    getExamSlip(),
+  ];
+  if (routes.admin) requests.push(q(sb.rpc('admin_users')));
+  const [courses, timetable, assignments, notes, grades, bulletin, academic, examSlip, adminUsers] = await Promise.all(requests);
+  const add = (title, detail, type, href, extra = '') => {
+    const text = `${title || ''} ${detail || ''} ${extra || ''}`.toLocaleLowerCase();
+    items.push({ title: title || type, detail: detail || '', type, href, text });
+  };
+  courses.forEach((course) => add(course.code, course.name || '', 'Course', '#/courses'));
+  (timetable?.classes || []).forEach((item) => {
+    const day = DAYN[item.day] || '';
+    const detail = [day, item.start && item.end ? `${item.start}–${item.end}` : '', item.kind || '', item.venue || ''].filter(Boolean).join(' · ');
+    add(item.course_name || item.course_code || 'Class', detail, 'Timetable', '#/timetable', item.course_code || '');
+  });
+  assignments.forEach((item) => add(item.title, [item.course_code || '', item.due_date ? `Due ${item.due_date}` : '', item.done ? 'Completed' : 'Pending'].filter(Boolean).join(' · '), 'Assignment', '#/assignments'));
+  notes.forEach((item) => add(item.title, item.course_code || '', 'Note', '#/notes', item.body || ''));
+  grades.forEach((item) => add(item.item, item.course_code || '', 'Grade', '#/grades'));
+  (bulletin?.posts || []).forEach((post) => add(post.title, [post.course_code || 'General', post.kind || ''].filter(Boolean).join(' · '), 'Bulletin', '#/bulletin', post.body || ''));
+  (academic?.events || []).forEach((event) => add(event.title, [event.start_date, event.end_date].filter(Boolean).join(' – '), 'Academic calendar', '#/academic'));
+  (examSlip?.exams || []).forEach((exam) => add(exam.name || exam.code, [exam.code || '', exam.date || '', exam.venue || ''].filter(Boolean).join(' · '), 'Exam', '#/exams'));
+  if (routes.admin) {
+    (adminUsers || []).forEach((user) => add(user.name, [user.student_id, user.program, user.email].filter(Boolean).join(' · '), 'Student account', `#/admin/user/${user.id}`));
+  }
+  return items;
+}
+function mountUniversalSearch(main, routes) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'universal-search';
+  const label = document.createElement('label');
+  label.className = 'universal-search-control';
+  const accessibleLabel = document.createElement('span');
+  accessibleLabel.className = 'sr-only';
+  accessibleLabel.textContent = 'Search StudyHub';
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.id = 'universal-search-input';
+  input.placeholder = 'Search pages, courses, classes, and more';
+  input.autocomplete = 'off';
+  input.setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-controls', 'universal-search-results');
+  const shortcut = document.createElement('kbd');
+  shortcut.textContent = 'Ctrl K';
+  label.append(accessibleLabel, input, shortcut);
+  const results = document.createElement('div');
+  results.className = 'universal-search-results';
+  results.id = 'universal-search-results';
+  results.setAttribute('role', 'listbox');
+  results.hidden = true;
+  wrapper.append(label, results);
+  main.prepend(wrapper);
+  const setResults = (matches, message = '') => {
+    results.replaceChildren();
+    if (message) {
+      const note = document.createElement('p');
+      note.className = 'universal-search-status';
+      note.textContent = message;
+      results.append(note);
+    }
+    matches.forEach((item) => {
+      const link = document.createElement('a');
+      link.className = 'universal-search-result';
+      link.href = item.href;
+      link.setAttribute('role', 'option');
+      const title = document.createElement('b');
+      title.textContent = item.title;
+      const detail = document.createElement('span');
+      detail.textContent = item.detail;
+      const type = document.createElement('small');
+      type.textContent = item.type;
+      link.append(title, detail, type);
+      results.append(link);
+    });
+    const open = Boolean(message || matches.length);
+    results.hidden = !open;
+    input.setAttribute('aria-expanded', String(open));
+  };
+  let timer = null, requestId = 0;
+  input.addEventListener('input', () => {
+    const query = input.value.trim().toLocaleLowerCase();
+    const current = ++requestId;
+    clearTimeout(timer);
+    if (query.length < 2) return setResults([], query ? 'Type at least 2 characters to search.' : '');
+    setResults([], 'Searching StudyHub…');
+    timer = setTimeout(async () => {
+      const cacheKey = `${me?.id || 'guest'}:${Object.keys(routes).join(',')}`;
+      if (!universalSearchCache || universalSearchCache.key !== cacheKey || Date.now() - universalSearchCacheAt > 30000) {
+        universalSearchCache = { key: cacheKey, promise: buildUniversalSearchIndex(routes) };
+        universalSearchCacheAt = Date.now();
+      }
+      let index;
+      try { index = await universalSearchCache.promise; }
+      catch {
+        universalSearchCache = null;
+        if (current === requestId && input.isConnected) setResults([], 'Some results could not be loaded. Check your connection and try again.');
+        return;
+      }
+      if (current !== requestId || !input.isConnected) return;
+      const matches = index.filter((item) => item.text.includes(query))
+        .sort((a, b) => Number(b.title.toLocaleLowerCase().startsWith(query)) - Number(a.title.toLocaleLowerCase().startsWith(query)))
+        .slice(0, 12);
+      setResults(matches, matches.length ? '' : 'No matching pages or content found.');
+    }, 160);
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { setResults([]); input.blur(); }
+    if (event.key === 'Enter') {
+      const first = results.querySelector('a');
+      if (first && !results.hidden) { event.preventDefault(); first.click(); }
+    }
+  });
+  if (universalSearchOutsideHandler) document.removeEventListener('click', universalSearchOutsideHandler);
+  universalSearchOutsideHandler = (event) => {
+    if (!wrapper.contains(event.target)) setResults([]);
+  };
+  document.addEventListener('click', universalSearchOutsideHandler);
+  if (!universalSearchKeyboardWired) {
+    document.addEventListener('keydown', (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        const search = document.getElementById('universal-search-input');
+        if (search) { event.preventDefault(); search.focus(); search.select(); }
+      }
+    });
+    universalSearchKeyboardWired = true;
+  }
+}
+
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
   me = session ? await q(sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()) : null;
@@ -335,6 +484,7 @@ async function boot() {
   render();
 }
 async function render() {
+  invalidateUniversalSearchCache();
   let key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
   const maintenance = await getMaintenance();
   armMaintenanceTimer(maintenance);
@@ -359,12 +509,12 @@ async function render() {
     const setMenu = (open) => { nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); };
     menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
     document.getElementById('nav-links').addEventListener('click', (e) => { if (e.target.closest?.('a[href^="#/"]')) setMenu(false); });
-    try { await fn(document.getElementById('main')); prepareMobileTables(document.getElementById('main')); }
+    try { const main = document.getElementById('main'); await fn(main); prepareMobileTables(main); mountUniversalSearch(main, PUBLIC_ROUTES); }
     catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
     return;
   }
   const routes = { ...ROUTES, ...(isAdmin() ? {
-    admin: ['Admin', pgAdmin], 'admin-subjects': ['Subject Search', pgAdminSubjects], 'admin-registrations': ['Student Registrations', pgAdminRegistrations], 'admin-changelog': ['Manage changelog', pgAdminChangelog],
+    admin: ['Admin overview', pgAdmin], 'admin-settings': ['System settings', pgAdminSettings], 'admin-users': ['Student accounts', pgAdminUsers], 'admin-subjects': ['Subject Search', pgAdminSubjects], 'admin-registrations': ['Student Registrations', pgAdminRegistrations], 'admin-changelog': ['Manage changelog', pgAdminChangelog],
   } : {}) };
   const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
   const pageTitle = key === 'welcome' ? 'Getting started' : (routes[key] || routes[''])[0];
@@ -401,7 +551,7 @@ async function render() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.classList.contains('open')) { setMenu(false); menuBtn.focus(); } });
   if (key !== 'bulletin') bulletinNewSince = null;
   updateBadges();
-  try { await fn(document.getElementById('main')); prepareMobileTables(document.getElementById('main')); }
+  try { const main = document.getElementById('main'); await fn(main); prepareMobileTables(main); mountUniversalSearch(main, routes); }
   catch (e) { document.getElementById('main').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 function prepareMobileTables(root) {
@@ -1787,8 +1937,29 @@ async function loadTimetableHtml(html, progress = () => {}) {
 async function pgAdmin(m) {
   const sub = location.hash.split('/');
   if (sub[2] === 'user' && sub[3]) return pgAdminUser(m, sub[3]);
-  const [s, users, acNow, count] = await Promise.all([getSettings(), q(sb.rpc('admin_users')), getAcademic(), sb.from('classes').select('id', { count: 'exact', head: true }).then((r) => r.count || 0)]);
-  m.innerHTML = `<h2>Admin</h2><p class="sub">Manage the timetable source and users.</p>
+  m.innerHTML = `<h2>Admin</h2><p class="sub">Choose an area to manage.</p>
+    <section class="admin-hub-group"><h3>System &amp; academics</h3><div class="admin-hub-grid">
+      <a class="admin-hub-link" href="#/admin-settings"><b>System settings</b><span>Maintenance, timetable source, academic calendar, and semester dates</span></a>
+      <a class="admin-hub-link" href="#/admin-subjects"><b>Subject search</b><span>Find classes across the uploaded university timetable</span></a>
+    </div></section>
+    <section class="admin-hub-group"><h3>People</h3><div class="admin-hub-grid">
+      <a class="admin-hub-link" href="#/admin-users"><b>Student accounts</b><span>Search accounts, manage access, and reset passwords</span></a>
+      <a class="admin-hub-link" href="#/admin-registrations"><b>Student registrations</b><span>Review the subjects students have registered</span></a>
+    </div></section>
+    <section class="admin-hub-group"><h3>Communication</h3><div class="admin-hub-grid">
+      <a class="admin-hub-link" href="#/admin-changelog"><b>Manage changelog</b><span>Review entries and choose which updates are public</span></a>
+    </div></section>`;
+}
+async function pgAdminUsers(m) {
+  const users = await q(sb.rpc('admin_users'));
+  m.innerHTML = `<h2>Student accounts</h2><p class="sub">Search accounts and manage roles, passwords, and account details.</p>
+    <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<table class="users-tbl"><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
+    ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td class="u-id">${esc(u.student_id)}</td><td class="u-name"><b class="u-nm">${esc(u.name)}</b><br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td data-l="Programme">${esc(u.program || '')}</td><td data-l="Courses">${u.courses}</td><td data-l="Role">${esc(u.role)}</td><td class="u-acts"><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Reset password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></td></tr>`).join('')}</table></div>`;
+  wireUserActions(m);
+}
+async function pgAdminSettings(m) {
+  const [s, acNow, count] = await Promise.all([getSettings(), getAcademic(), sb.from('classes').select('id', { count: 'exact', head: true }).then((r) => r.count || 0)]);
+  m.innerHTML = `<h2>System settings</h2><p class="sub">Manage maintenance access, timetable sources, and academic dates.</p>
   <form class="card" id="maintenance-form"><h3>Maintenance notice</h3><p class="mute">Show a full-screen notice and pause student and guest access during this window. Admins can still sign in and manage the system.</p>
   <label class="remember"><input type="checkbox" name="maintenance_enabled" ${s.maintenance_enabled === 'true' ? 'checked' : ''}> Enable maintenance window</label>
   <div class="row"><div><label>Starts (your local time)</label><input type="datetime-local" name="maintenance_start" value="${esc(toLocalDateTime(s.maintenance_start))}"></div><div><label>Ends (your local time)</label><input type="datetime-local" name="maintenance_end" value="${esc(toLocalDateTime(s.maintenance_end))}"></div></div>
@@ -1811,8 +1982,7 @@ async function pgAdmin(m) {
   <div class="row"><div><label>Semester start</label><input type="date" name="semester_start" value="${esc(s.semester_start)}"></div><div><label>Semester end</label><input type="date" name="semester_end" value="${esc(s.semester_end)}"></div></div>
   <div class="row"><div><label>Mid-semester break start <span class="mute">(optional)</span></label><input type="date" name="break_start" value="${esc(s.break_start)}"></div><div><label>Break end <span class="mute">(optional)</span></label><input type="date" name="break_end" value="${esc(s.break_end)}"></div></div>
   <div id="semm"></div><p><button>Save dates</button></p></form>
-  <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<table class="users-tbl"><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
-  ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td class="u-id">${esc(u.student_id)}</td><td class="u-name"><b class="u-nm">${esc(u.name)}</b><br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td data-l="Programme">${esc(u.program || '')}</td><td data-l="Courses">${u.courses}</td><td data-l="Role">${esc(u.role)}</td><td class="u-acts"><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Reset password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></td></tr>`).join('')}</table></div>`;
+;
   document.getElementById('maintenance-form').onsubmit = async (e) => {
     e.preventDefault();
     const form = e.currentTarget, values = Object.fromEntries(new FormData(form));
@@ -1944,7 +2114,6 @@ async function pgAdmin(m) {
     try { await q(sb.from('settings').upsert(Object.entries(d).map(([key, value]) => ({ key, value })))); flash(document.getElementById('semm'), 'Saved', 1); }
     catch (er) { flash(document.getElementById('semm'), er.message); }
   };
-  wireUserActions(m);
 }
 async function loadAdminRows(table, columns, order) {
   const pageSize = 1000;
