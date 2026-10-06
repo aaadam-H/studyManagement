@@ -571,9 +571,9 @@ button,.btn,input,select,textarea{border-radius:7px}
 @media(max-width:760px){.unimap-services-grid{grid-template-columns:minmax(0,1fr)}}
 
 /* Landscape tablets need a full-width workspace instead of desktop side rails. */
-@media (min-width:761px) and (max-width:1366px) and (orientation:landscape){
+@media (min-width:761px) and (max-width:1440px){
   .shell{flex-direction:column}
-  .shell>nav,.guest-shell>nav{position:sticky;top:0;left:auto;bottom:auto;z-index:30;width:100%;height:auto;min-height:0;padding:0;border:0;border-bottom:1px solid var(--line);display:block}
+  .shell>nav,.guest-shell>nav{position:sticky;top:0;left:auto;right:auto;bottom:auto;z-index:30;flex:0 0 auto;align-self:stretch;width:100%;height:auto;min-height:0;padding:0;border:0;border-bottom:1px solid var(--line);display:block}
   .nav-top{display:flex;position:static;align-items:center;gap:12px;padding:8px 18px;background:var(--card);border-bottom:0}
   .nav-top .brand{display:block;flex:0 0 auto;padding:0;margin:0;background:transparent;border:0}
   .nav-top .brand h1{font-size:18px;margin:0}
