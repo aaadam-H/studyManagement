@@ -595,3 +595,13 @@ button,.btn,input,select,textarea{border-radius:7px}
   .content>.account-rail{display:none}
   .content>footer,.guest-shell .content>footer{grid-column:1;grid-row:2}
 }
+
+/* Give tablet wallpaper controls their own full-width row; do not squeeze them beside the preview. */
+@media (min-width:761px) and (max-width:1100px){
+  .wallpaper-card{grid-template-columns:minmax(0,1fr);gap:14px}
+  .wallpaper-card>div:first-child,.wallpaper-controls,.wallpaper-card>.btns,.wallpaper-card canvas{grid-column:1}
+  .wallpaper-card>div:first-child{grid-row:1}
+  .wallpaper-controls{grid-row:2}
+  .wallpaper-card canvas{grid-row:3;width:min(100%,420px);max-width:100%;margin:4px auto}
+  .wallpaper-card>.btns{grid-row:4}
+}
