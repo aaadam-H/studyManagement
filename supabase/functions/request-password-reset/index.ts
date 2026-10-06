@@ -59,7 +59,10 @@ Deno.serve(async (req: Request) => {
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
     });
-    const forwardedFor = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const forwardedFor = req.headers.get('cf-connecting-ip')?.trim()
+      || req.headers.get('x-real-ip')?.trim()
+      || req.headers.get('x-forwarded-for')?.split(',').map((value) => value.trim()).filter(Boolean).at(-1)
+      || 'unknown';
     const studentHash = await sha256(`student:${studentId}`);
     const ipHash = await sha256(`ip:${forwardedFor}`);
     const { data: allowed, error: limitError } = await admin.rpc('consume_password_reset_limits', {
