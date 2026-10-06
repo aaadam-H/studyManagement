@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.19';
+const APP_VERSION = '1.2.20';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -24,7 +24,7 @@ const store = {
 };
 const loginEmail = (sid) => `${sid.trim().toLowerCase()}@${CFG.LOGIN_EMAIL_DOMAIN || 'students.studyhub.app'}`;
 const MAINTENANCE_KEYS = ['maintenance_enabled', 'maintenance_message', 'maintenance_start', 'maintenance_end'];
-let passwordRecoveryMode = false, loginNotice = '';
+let loginNotice = '';
 let maintenanceCache = null, maintenanceCacheAt = 0, maintenanceTimer = null, maintenanceGate = false;
 
 if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('YOUR-PROJECT') || !window.supabase) {
@@ -35,7 +35,6 @@ if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('YOUR-PROJECT') || !window.su
 // "Remember me": the login is kept in localStorage (survives closing the browser) or, if unticked, in sessionStorage (ends with the browser session).
 const remembered = () => store.get('remember') !== '0';
 const tryStore = (fn) => { try { return fn(); } catch { return null; } };
-passwordRecoveryMode = tryStore(() => sessionStorage.getItem('studyhub_password_recovery') === '1') || false;
 const authStorage = {
   getItem: (k) => tryStore(() => localStorage.getItem(k)) ?? tryStore(() => sessionStorage.getItem(k)),
   setItem: (k, v) => { const [keep, drop] = remembered() ? [localStorage, sessionStorage] : [sessionStorage, localStorage]; tryStore(() => keep.setItem(k, v)); tryStore(() => drop.removeItem(k)); },
@@ -225,7 +224,6 @@ document.addEventListener('input', (e) => {
 /* ---------------- auth screens ---------------- */
 function authScreen(mode = 'login', opts = {}) {
   if (mode === 'forgot') return forgotPasswordScreen(opts);
-  if (mode === 'reset') return passwordResetScreen();
   const reg = mode === 'register';
   const reason = !reg && opts.reason ? `<div class="card auth-reason"><b>Login required</b><p>${esc(opts.reason)}</p></div>` : '';
   const notice = !reg && (opts.notice || loginNotice) ? `<div class="card auth-reason auth-success"><p>${esc(opts.notice || loginNotice)}</p></div>` : '';
@@ -293,77 +291,48 @@ function authScreen(mode = 'login', opts = {}) {
 
 function forgotPasswordScreen() {
   setAppHtml(`<div class="auth"><h1>StudyHub</h1><p class="sub">Reset your password</p>
-    <section class="card auth-reason"><h2>Get a reset link by email</h2>
-      <p>Enter your 9-digit student ID. If a recovery email is on file, we’ll send a secure link to that address.</p>
-      <form id="forgot-form">
-        <label for="forgot-student-id">Student ID (matric no.)</label>
-        <input id="forgot-student-id" name="student_id" required inputmode="numeric" pattern="[0-9]{9}" minlength="9" maxlength="9" placeholder="YYPPP####" autocomplete="username">
-        <div id="forgot-msg" aria-live="polite"></div>
-        <p><button type="submit">Send reset link</button></p>
-      </form>
-      <p class="mute">For privacy, StudyHub shows the same message whether or not an account is found. Check your inbox and spam folder.</p>
+    <section class="card auth-reason"><h2>Ask an admin to reset it</h2>
+      <p>Contact the StudyHub admin with your student ID. They can give you a temporary password.</p>
+      <p>For security, StudyHub will ask you to choose a new password the next time you sign in with it.</p>
+      <p><a class="btn" href="https://wa.me/aaadam_h" target="_blank" rel="noopener noreferrer">Contact admin on WhatsApp</a></p>
       <p><button type="button" class="ghost" id="forgot-back">Back to log in</button></p>
     </section>${FOOTER}</div>`);
   document.getElementById('forgot-back').onclick = () => authScreen('login');
-  document.getElementById('forgot-form').onsubmit = async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = form.querySelector('button[type="submit"]');
-    const msg = document.getElementById('forgot-msg');
-    button.disabled = true;
-    try {
-      const student_id = form.elements.student_id.value.trim();
-      if (!/^\d{9}$/.test(student_id)) throw new Error('Enter your 9-digit student ID.');
-      const { error } = await sb.functions.invoke('request-password-reset', { body: { student_id } });
-      if (error) throw new Error('We could not submit the request. Please try again later.');
-      flash(msg, 'If your student ID has a recovery email on file, a reset link is on its way. Please check your inbox and spam folder.', true);
-    } catch (error) {
-      flash(msg, error.message || 'We could not submit the request. Please try again later.');
-    } finally { button.disabled = false; }
-  };
 }
 
-function passwordResetScreen() {
-  passwordRecoveryMode = true;
-  setAppHtml(`<div class="auth"><h1>StudyHub</h1><p class="sub">Choose a new password</p>
-    <section class="card auth-reason"><h2>Reset your password</h2>
-      <p>Choose a password with at least 8 characters.</p>
-      <form id="reset-password-form">
-        <label for="new-password">New password</label>
-        <input id="new-password" name="password" type="password" required minlength="8" autocomplete="new-password">
-        <label for="confirm-password">Confirm new password</label>
-        <input id="confirm-password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password">
-        <div id="reset-msg" aria-live="polite"></div>
+function forcedPasswordChangeScreen() {
+  setAppHtml(`<div class="auth"><h1>StudyHub</h1><p class="sub">Change your temporary password</p>
+    <section class="card auth-reason"><h2>Choose a new password</h2>
+      <p>Your admin gave you a temporary password. Set a new password to continue using StudyHub.</p>
+      <form id="forced-password-form">
+        <label for="forced-new-password">New password</label>
+        <input id="forced-new-password" name="password" type="password" required minlength="8" autocomplete="new-password">
+        <label for="forced-confirm-password">Confirm new password</label>
+        <input id="forced-confirm-password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password">
+        <div id="forced-password-msg" aria-live="polite"></div>
         <p><button type="submit">Save new password</button></p>
       </form>
-      <p><button type="button" class="ghost" id="reset-cancel">Cancel and return to log in</button></p>
+      <p><button type="button" class="ghost" id="forced-password-logout">Log out</button></p>
     </section>${FOOTER}</div>`);
-  document.getElementById('reset-cancel').onclick = async () => {
-    passwordRecoveryMode = false;
-    tryStore(() => sessionStorage.removeItem('studyhub_password_recovery'));
-    await sb.auth.signOut({ scope: 'local' });
-    location.hash = '#/login';
+  document.getElementById('forced-password-logout').onclick = async () => {
+    await sb.auth.signOut();
   };
-  document.getElementById('reset-password-form').onsubmit = async (event) => {
+  document.getElementById('forced-password-form').onsubmit = async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const msg = document.getElementById('reset-msg');
+    const msg = document.getElementById('forced-password-msg');
     const button = form.querySelector('button[type="submit"]');
     const password = form.elements.password.value;
     if (password.length < 8) return flash(msg, 'Use at least 8 characters.');
     if (password !== form.elements.confirm_password.value) return flash(msg, 'The passwords do not match.');
     button.disabled = true;
     try {
-      const { error } = await sb.auth.updateUser({ password });
-      if (error) throw error;
-      passwordRecoveryMode = false;
-      tryStore(() => sessionStorage.removeItem('studyhub_password_recovery'));
-      loginNotice = 'Your password has been updated. Sign in with your student ID and new password.';
-      await sb.auth.signOut({ scope: 'local' });
-      history.replaceState(null, '', '#/login');
-      authScreen('login', { notice: loginNotice });
+      await q(sb.rpc('complete_forced_password_change', { new_password: password }));
+      me.must_change_password = false;
+      location.hash = '#/';
+      render();
     } catch (error) {
-      flash(msg, error.message || 'This reset link may have expired. Request a new one and try again.');
+      flash(msg, error.message || 'Could not update the password. Please try again.');
     } finally { button.disabled = false; }
   };
 }
@@ -545,24 +514,24 @@ function mountUniversalSearch(main, routes) {
 
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
-  if (passwordRecoveryMode) return passwordResetScreen();
   me = session ? await q(sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()) : null;
   const maintenance = await getMaintenance();
   armMaintenanceTimer(maintenance);
   maintenanceGate = maintenanceIsActive(maintenance) && me?.role !== 'admin';
   if (maintenanceGate) return maintenanceScreen();
+  if (me?.must_change_password) return forcedPasswordChangeScreen();
   if (!me) return authScreen();
   if (location.hash !== '#/') history.replaceState(null, '', '#/');
   render();
 }
 async function render() {
-  if (passwordRecoveryMode) return passwordResetScreen();
   invalidateUniversalSearchCache();
   let key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
   const maintenance = await getMaintenance();
   armMaintenanceTimer(maintenance);
   maintenanceGate = maintenanceIsActive(maintenance) && me?.role !== 'admin';
   if (maintenanceGate) return maintenanceScreen();
+  if (me?.must_change_password) return forcedPasswordChangeScreen();
   if (!me) {
     if (key === 'login') return authScreen('login');
     if (!PUBLIC_ROUTES[key]) {
@@ -643,13 +612,9 @@ function prepareMobileTables(root) {
 }
 window.addEventListener('hashchange', render);
 sb.auth.onAuthStateChange((event) => {
-  if (event === 'PASSWORD_RECOVERY') {
-    passwordRecoveryMode = true;
-    tryStore(() => sessionStorage.setItem('studyhub_password_recovery', '1'));
-    setTimeout(passwordResetScreen, 0);
-  } else if (event === 'SIGNED_OUT') {
+  if (event === 'SIGNED_OUT') {
     me = null;
-    setTimeout(() => { if (!passwordRecoveryMode) render(); }, 0);
+    setTimeout(render, 0);
   }
 });
 
@@ -2051,7 +2016,7 @@ async function pgAdminUsers(m) {
   const users = await q(sb.rpc('admin_users'));
   m.innerHTML = `<h2>Student accounts</h2><p class="sub">Search accounts and manage roles, passwords, and account details.</p>
     <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<table class="users-tbl"><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
-    ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td class="u-id">${esc(u.student_id)}</td><td class="u-name"><b class="u-nm">${esc(u.name)}</b><br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td data-l="Programme">${esc(u.program || '')}</td><td data-l="Courses">${u.courses}</td><td data-l="Role">${esc(u.role)}</td><td class="u-acts"><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Reset password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></td></tr>`).join('')}</table></div>`;
+    ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td class="u-id">${esc(u.student_id)}</td><td class="u-name"><b class="u-nm">${esc(u.name)}</b><br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td data-l="Programme">${esc(u.program || '')}</td><td data-l="Courses">${u.courses}</td><td data-l="Role">${esc(u.role)}</td><td class="u-acts"><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Set temporary password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></td></tr>`).join('')}</table></div>`;
   wireUserActions(m);
 }
 async function pgAdminSettings(m) {
@@ -2292,8 +2257,8 @@ async function pgAdminChangelog(m) {
 function wireUserActions(m, after = render) {
   m.querySelectorAll('[data-role]').forEach((b) => (b.onclick = async () => { await q(sb.rpc('admin_set_role', { target: b.dataset.role, new_role: b.dataset.r })); after(); }));
   m.querySelectorAll('[data-pw]').forEach((b) => (b.onclick = async () => {
-    const p = prompt('New password (min 8 characters):');
-    if (p) { try { await q(sb.rpc('admin_reset_password', { target: b.dataset.pw, new_password: p })); alert('Password reset'); } catch (e) { alert(e.message); } }
+    const p = prompt('Set a temporary password (at least 8 characters). The student must change it at their next sign-in:');
+    if (p) { try { await q(sb.rpc('admin_reset_password', { target: b.dataset.pw, new_password: p })); alert('Temporary password set. Give it to the student; they must choose a new password when they next sign in.'); } catch (e) { alert(e.message); } }
   }));
   m.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
     if (confirm('Delete this user and all their data? This cannot be undone.')) { await q(sb.rpc('admin_delete_user', { target: b.dataset.del })); location.hash = '#/admin'; render(); }
@@ -2302,7 +2267,7 @@ function wireUserActions(m, after = render) {
 
 const userButtons = (u) => u.id === me.id ? '<span class="mute">(this is you)</span>' :
   `<button class="ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button>
-   <button class="ghost" data-pw="${u.id}">Reset password</button> <button class="danger" data-del="${u.id}">Delete account</button>`;
+   <button class="ghost" data-pw="${u.id}">Set temporary password</button> <button class="danger" data-del="${u.id}">Delete account</button>`;
 async function pgAdminUser(m, uid) {
   const u = await q(sb.from('profiles').select('*').eq('id', uid).maybeSingle());
   if (!u) { m.innerHTML = '<p><a href="#/admin">&larr; Back to users</a></p><div class="card">User not found.</div>'; return; }

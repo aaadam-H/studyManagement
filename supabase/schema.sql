@@ -11,8 +11,10 @@ create table if not exists public.profiles (
   email text, phone text, program text, faculty text,
   year int, semester text,
   role text not null default 'student' check (role in ('student','admin')),
+  must_change_password boolean not null default false,
   created_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists must_change_password boolean not null default false;
 create table if not exists public.settings (key text primary key, value text);
 create table if not exists public.password_reset_rate_limits (
   lookup_hash text primary key check (lookup_hash ~ '^[0-9a-f]{64}$'),
@@ -443,9 +445,29 @@ language plpgsql security definer set search_path = public, extensions as $$
 begin
   if not is_admin() then raise exception 'admin only'; end if;
   if length(new_password) < 8 then raise exception 'password must be at least 8 characters'; end if;
+  if target = auth.uid() then raise exception 'use your profile password settings to change your own password'; end if;
   update auth.users set encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')) where id = target;
+  if not found then raise exception 'user not found'; end if;
+  update public.profiles set must_change_password = true where id = target;
+  if not found then raise exception 'user profile not found'; end if;
   -- sign them out everywhere (refresh tokens go with their sessions)
   if to_regclass('auth.sessions') is not null then execute 'delete from auth.sessions where user_id = $1' using target; end if;
+end $$;
+
+create or replace function public.complete_forced_password_change(new_password text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare target uuid := auth.uid();
+begin
+  if target is null then raise exception 'sign in required'; end if;
+  if length(new_password) < 8 then raise exception 'password must be at least 8 characters'; end if;
+  if not exists (select 1 from public.profiles where id = target and must_change_password) then
+    raise exception 'no temporary password change is pending';
+  end if;
+  update auth.users
+    set encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf'))
+    where id = target;
+  if not found then raise exception 'user not found'; end if;
+  update public.profiles set must_change_password = false where id = target;
 end $$;
 
 create or replace function public.admin_delete_user(target uuid) returns void
@@ -754,7 +776,7 @@ $$;
 revoke execute on all functions in schema public from anon, authenticated, public;
 grant execute on function public.is_admin(), public.is_enrolled(text), public.save_courses(jsonb, boolean),
   public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_set_role(uuid, text),
-  public.admin_reset_password(uuid, text), public.admin_delete_user(uuid),
+  public.admin_reset_password(uuid, text), public.complete_forced_password_change(text), public.admin_delete_user(uuid),
   public.admin_update_profile(uuid, jsonb), public.my_timetable(uuid), public.my_calendar_ics(),
   public.reset_calendar_token(), public.mark_bulletin_seen(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb),
   public.admin_update_feedback(bigint, text, text), public.admin_mark_feedback_read(bigint[]) to authenticated;
