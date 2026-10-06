@@ -27,13 +27,13 @@ Left menu, **Authentication**, then **Sign In / Providers** (or **Providers**), 
 The sign-in page can send a one-time recovery link to the contact email saved in the student's StudyHub profile. The Supabase Auth email remains the generated student-ID address; it is only used internally to locate the account.
 
 1. In Supabase **SQL Editor**, run the updated full `supabase/schema.sql` from this repo. It adds a private, rate-limited request table/function; the new function is executable only by Supabase's service role.
-2. Create a Resend account, add and verify a sending domain, and create an API key. Resend requires a verified sending identity for production mail; you need access to the domain's DNS. Do not put this key in `web/config.js`, GitHub, or chat.
+2. Create a Brevo account and API key. In Brevo, add a sender using an email inbox you can open, then verify it using the code Brevo sends. You do not need to own a domain to verify the sender email, although authenticating a domain improves delivery. Do not put this key in `web/config.js`, GitHub, or chat. See [Brevo's sender setup](https://help.brevo.com/hc/en-us/articles/208836149-Create-a-new-sender-From-name-and-From-email).
 3. In Supabase **Edge Functions**, create **`request-password-reset`** using `supabase/functions/request-password-reset/index.ts`. Turn **Verify JWT / Enforce JWT OFF** because students are logged out when they request a link. The function uses server-side secrets and its own rate limit.
-4. In the function's **Secrets** settings, add `RESEND_API_KEY`, `RESET_EMAIL_FROM` (for example, `StudyHub <reset@your-verified-domain>`), and `RESET_REDIRECT_URL` set to `https://aaadam-h.github.io/studyManagement/web/`. Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; never expose the service-role key in the website.
+4. In the function's **Secrets** settings, add `BREVO_API_KEY`, `RESET_EMAIL_FROM` (the exact verified sender email address), and `RESET_REDIRECT_URL` set to `https://aaadam-h.github.io/studyManagement/web/`. Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; never expose the service-role key in the website.
 5. In **Authentication → URL Configuration → Redirect URLs**, allow `https://aaadam-h.github.io/studyManagement/web/`.
 6. Check that each student's profile has the correct contact email. The request page always shows the same confirmation, and limits requests to 3 per student ID and 60 per network address per hour.
 
-If you do not own a domain or cannot edit DNS, email delivery still needs a provider/sender you control that permits production transactional mail. The reset feature won't send until that provider's sender credentials are configured in the function.
+If you use a free mailbox address as the sender without domain authentication, the mail provider may replace the visible sender address to meet recipient-mail-provider requirements. Test delivery to a few inboxes before announcing password recovery to all students.
 
 ## 4b. Automatic changelog drafts
 1. Create an Edge Function named **`changelog-ingest`** from `supabase/functions/changelog-ingest/index.ts`.
