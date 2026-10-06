@@ -14,7 +14,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.18';
+const APP_VERSION = '1.2.19';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -23,6 +23,7 @@ const store = {
 };
 const loginEmail = (sid) => `${sid.trim().toLowerCase()}@${CFG.LOGIN_EMAIL_DOMAIN || 'students.studyhub.app'}`;
 const MAINTENANCE_KEYS = ['maintenance_enabled', 'maintenance_message', 'maintenance_start', 'maintenance_end'];
+let passwordRecoveryMode = false, loginNotice = '';
 let maintenanceCache = null, maintenanceCacheAt = 0, maintenanceTimer = null, maintenanceGate = false;
 
 if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('YOUR-PROJECT') || !window.supabase) {
@@ -33,6 +34,7 @@ if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('YOUR-PROJECT') || !window.su
 // "Remember me": the login is kept in localStorage (survives closing the browser) or, if unticked, in sessionStorage (ends with the browser session).
 const remembered = () => store.get('remember') !== '0';
 const tryStore = (fn) => { try { return fn(); } catch { return null; } };
+passwordRecoveryMode = tryStore(() => sessionStorage.getItem('studyhub_password_recovery') === '1') || false;
 const authStorage = {
   getItem: (k) => tryStore(() => localStorage.getItem(k)) ?? tryStore(() => sessionStorage.getItem(k)),
   setItem: (k, v) => { const [keep, drop] = remembered() ? [localStorage, sessionStorage] : [sessionStorage, localStorage]; tryStore(() => keep.setItem(k, v)); tryStore(() => drop.removeItem(k)); },
@@ -222,11 +224,13 @@ document.addEventListener('input', (e) => {
 /* ---------------- auth screens ---------------- */
 function authScreen(mode = 'login', opts = {}) {
   if (mode === 'forgot') return forgotPasswordScreen(opts);
+  if (mode === 'reset') return passwordResetScreen();
   const reg = mode === 'register';
   const reason = !reg && opts.reason ? `<div class="card auth-reason"><b>Login required</b><p>${esc(opts.reason)}</p></div>` : '';
+  const notice = !reg && (opts.notice || loginNotice) ? `<div class="card auth-reason auth-success"><p>${esc(opts.notice || loginNotice)}</p></div>` : '';
   const maintenanceNote = maintenanceGate ? `<div class="card auth-reason"><b>StudyHub is under maintenance</b><p>Student access is temporarily paused. Admins can sign in to manage the maintenance window.</p></div>` : '';
   $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">${reg ? 'Create your student account' : 'Log in to your study planner'}</p>
-  ${maintenanceNote}${reason}
+  ${maintenanceNote}${reason}${notice}
   <form class="card" id="f">
     <label>Student ID (matric no.) <span class="req">*</span></label><input name="student_id" required inputmode="numeric" pattern="[0-9]{9}" minlength="9" maxlength="9" placeholder="YYPPP####" title="Enter the 9-digit ID in YYPPP#### format" autocomplete="username" value="${reg ? '' : esc(store.get('last_sid') || '')}">
     ${reg ? '<p class="mute sid-format">9 digits: 2-digit entry year + 3-digit programme code + 4-digit university number. Example format: 231021306.</p>' : ''}
@@ -263,6 +267,7 @@ function authScreen(mode = 'login', opts = {}) {
   if (forgot) forgot.onclick = (e) => { e.preventDefault(); authScreen('forgot'); };
   document.getElementById('f').onsubmit = async (e) => {
     e.preventDefault();
+    loginNotice = '';
     const msg = document.getElementById('msg');
     const { student_id, password, remember, ...info } = fd(e.target);
     if (reg && !parseStudentId(student_id)) return flash(msg, 'Student ID must be exactly 9 digits (YYPPP####).');
@@ -285,17 +290,82 @@ function authScreen(mode = 'login', opts = {}) {
   };
 }
 
-function forgotPasswordScreen(opts = {}) {
-  $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">Forgot your password?</p>
-    ${opts.reason ? `<div class="card auth-reason"><p>${esc(opts.reason)}</p></div>` : ''}
-    <section class="card auth-reason"><h2>Ask an admin to reset it</h2>
-      <p>Password reset by email is not available yet. Contact the StudyHub admin with your student ID, and they can reset your password.</p>
-      <p><a class="btn" href="https://wa.me/aaadam_h" target="_blank" rel="noopener noreferrer">Contact admin on WhatsApp</a></p>
+function forgotPasswordScreen() {
+  $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">Reset your password</p>
+    <section class="card auth-reason"><h2>Get a reset link by email</h2>
+      <p>Enter your 9-digit student ID. If a recovery email is on file, we’ll send a secure link to that address.</p>
+      <form id="forgot-form">
+        <label for="forgot-student-id">Student ID (matric no.)</label>
+        <input id="forgot-student-id" name="student_id" required inputmode="numeric" pattern="[0-9]{9}" minlength="9" maxlength="9" placeholder="YYPPP####" autocomplete="username">
+        <div id="forgot-msg" aria-live="polite"></div>
+        <p><button type="submit">Send reset link</button></p>
+      </form>
+      <p class="mute">For privacy, StudyHub shows the same message whether or not an account is found. Check your inbox and spam folder.</p>
       <p><button type="button" class="ghost" id="forgot-back">Back to log in</button></p>
     </section>${FOOTER}</div>`;
   document.getElementById('forgot-back').onclick = () => authScreen('login');
+  document.getElementById('forgot-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const msg = document.getElementById('forgot-msg');
+    button.disabled = true;
+    try {
+      const student_id = form.elements.student_id.value.trim();
+      if (!/^\d{9}$/.test(student_id)) throw new Error('Enter your 9-digit student ID.');
+      const { error } = await sb.functions.invoke('request-password-reset', { body: { student_id } });
+      if (error) throw new Error('We could not submit the request. Please try again later.');
+      flash(msg, 'If your student ID has a recovery email on file, a reset link is on its way. Please check your inbox and spam folder.', true);
+    } catch (error) {
+      flash(msg, error.message || 'We could not submit the request. Please try again later.');
+    } finally { button.disabled = false; }
+  };
 }
 
+function passwordResetScreen() {
+  passwordRecoveryMode = true;
+  $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">Choose a new password</p>
+    <section class="card auth-reason"><h2>Reset your password</h2>
+      <p>Choose a password with at least 8 characters.</p>
+      <form id="reset-password-form">
+        <label for="new-password">New password</label>
+        <input id="new-password" name="password" type="password" required minlength="8" autocomplete="new-password">
+        <label for="confirm-password">Confirm new password</label>
+        <input id="confirm-password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password">
+        <div id="reset-msg" aria-live="polite"></div>
+        <p><button type="submit">Save new password</button></p>
+      </form>
+      <p><button type="button" class="ghost" id="reset-cancel">Cancel and return to log in</button></p>
+    </section>${FOOTER}</div>`;
+  document.getElementById('reset-cancel').onclick = async () => {
+    passwordRecoveryMode = false;
+    tryStore(() => sessionStorage.removeItem('studyhub_password_recovery'));
+    await sb.auth.signOut({ scope: 'local' });
+    location.hash = '#/login';
+  };
+  document.getElementById('reset-password-form').onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const msg = document.getElementById('reset-msg');
+    const button = form.querySelector('button[type="submit"]');
+    const password = form.elements.password.value;
+    if (password.length < 8) return flash(msg, 'Use at least 8 characters.');
+    if (password !== form.elements.confirm_password.value) return flash(msg, 'The passwords do not match.');
+    button.disabled = true;
+    try {
+      const { error } = await sb.auth.updateUser({ password });
+      if (error) throw error;
+      passwordRecoveryMode = false;
+      tryStore(() => sessionStorage.removeItem('studyhub_password_recovery'));
+      loginNotice = 'Your password has been updated. Sign in with your student ID and new password.';
+      await sb.auth.signOut({ scope: 'local' });
+      history.replaceState(null, '', '#/login');
+      authScreen('login', { notice: loginNotice });
+    } catch (error) {
+      flash(msg, error.message || 'This reset link may have expired. Request a new one and try again.');
+    } finally { button.disabled = false; }
+  };
+}
 /* ---------------- shell ---------------- */
 const ROUTES = {
   '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], exams: ['Exams', pgExams], services: ['UniMAP services', pgUnimapServices], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
@@ -474,6 +544,7 @@ function mountUniversalSearch(main, routes) {
 
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
+  if (passwordRecoveryMode) return passwordResetScreen();
   me = session ? await q(sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()) : null;
   const maintenance = await getMaintenance();
   armMaintenanceTimer(maintenance);
@@ -484,6 +555,7 @@ async function boot() {
   render();
 }
 async function render() {
+  if (passwordRecoveryMode) return passwordResetScreen();
   invalidateUniversalSearchCache();
   let key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
   const maintenance = await getMaintenance();
@@ -491,6 +563,7 @@ async function render() {
   maintenanceGate = maintenanceIsActive(maintenance) && me?.role !== 'admin';
   if (maintenanceGate) return maintenanceScreen();
   if (!me) {
+    if (key === 'login') return authScreen('login');
     if (!PUBLIC_ROUTES[key]) {
       return authScreen('login', { reason: `Please log in to open ${PROTECTED_LABELS[key] || 'this page'}.` });
     }
@@ -568,7 +641,16 @@ function prepareMobileTables(root) {
   });
 }
 window.addEventListener('hashchange', render);
-sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; setTimeout(render, 0); } });
+sb.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    passwordRecoveryMode = true;
+    tryStore(() => sessionStorage.setItem('studyhub_password_recovery', '1'));
+    setTimeout(passwordResetScreen, 0);
+  } else if (event === 'SIGNED_OUT') {
+    me = null;
+    setTimeout(() => { if (!passwordRecoveryMode) render(); }, 0);
+  }
+});
 
 /* ---------------- "add to home screen" hint ---------------- */
 // Android Chrome/Edge offer a one-tap install (beforeinstallprompt); iPhone and other browsers get written steps.
