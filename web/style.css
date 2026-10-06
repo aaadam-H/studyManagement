@@ -470,3 +470,8 @@ button,.btn,input,select,textarea{border-radius:7px}
 .wallpaper-font-size output{font-variant-numeric:tabular-nums;color:var(--ink)}
 .wallpaper-font-size input[type=range]{width:100%;min-height:44px;padding:0;accent-color:var(--brand)}
 #wallpaper-font-size-help{font-size:12px;margin:0 0 8px}
+
+/* Make the wallpaper preview large enough to inspect without changing export dimensions. */
+.wallpaper-card{grid-template-columns:minmax(0,1fr) minmax(300px,360px)}
+.wallpaper-card canvas{width:100%;max-width:360px}
+@media(max-width:600px){.wallpaper-card canvas{width:min(100%,360px);max-width:360px}}
