@@ -992,6 +992,7 @@ async function pgUnimapServices(m) {
     ['Course pre-registration · SPOPREDEG', 'Open the course pre-registration system.', 'https://coursepreregdeg.unimap.edu.my/SPOPREDEG/SPO_login.jsp', 'Open pre-registration'],
     ['OSI', 'Open the UniMAP OSI student information system.', 'https://osi.unimap.edu.my/OSI_V2/login.jsp', 'Open OSI'],
     ['UniMAP e-Learning', 'Open the UniMAP online learning portal.', 'https://urlearn.unimap.edu.my/', 'Open e-Learning'],
+    ['UniParcel', 'Track parcels through the UniMAP parcel service.', 'https://uniparcel.unimap.edu.my/', 'Open UniParcel'],
   ];
   m.innerHTML = `<h2>UniMAP services</h2><p class="sub">Quick links to official UniMAP student services.</p>
   <div class="unimap-services-grid">${services.map(([title, description, url, action]) => `<article class="unimap-service"><h3>${esc(title)}</h3><p>${esc(description)}</p><a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">${esc(action)} <span aria-hidden="true">↗</span></a></article>`).join('')}</div>
