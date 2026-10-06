@@ -1121,7 +1121,7 @@ async function pgTimetable(m) {
     <fieldset class="wallpaper-toggles"><legend>Show on wallpaper</legend>
       ${[['showTitle','Title and weekly summary'],['showGroup','My group'],['showCode','Subject codes'],['showType','Class type'],['showVenue','Venue'],['showLecturer','Lecturer'],['showSection','Class group'],['showDayCounts','Classes per day']].map(([key, label]) => `<label><input type="checkbox" data-wallpaper-option="${key}"> ${label}</label>`).join('')}
       <p class="mute">Subject names, days and class times are always shown.</p>
-    </fieldset></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Preview of your timetable wallpaper"></canvas><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? 'Preparing preview…' : 'Choose groups or add classes to build your week first.'}</span></div></div>
+    </fieldset></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Preview of your timetable wallpaper"></canvas><dialog class="wallpaper-zoom-dialog" id="wallpaper-preview-dialog" aria-labelledby="wallpaper-preview-title"><div class="wallpaper-zoom-head"><h3 id="wallpaper-preview-title">Wallpaper preview</h3><button type="button" class="ghost" id="wallpaper-zoom-close" aria-label="Close enlarged preview">Close</button></div><canvas id="timetable-wallpaper-zoom" width="1080" height="1920" aria-label="Enlarged live preview of your timetable wallpaper"></canvas></dialog><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><button type="button" class="ghost" id="wallpaper-zoom-open" aria-haspopup="dialog">Zoom preview</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? 'Preparing preview…' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   <p class="mute timetable-source">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>
   <details class="timetable-settings"><summary>Groups, classes and calendar settings</summary>
   ${tt.myCourseCount && !noData ? `<div class="card"><h3>Your main group</h3>
@@ -1152,6 +1152,8 @@ async function pgTimetable(m) {
   // Sanitize the complete template before it enters the live document.
   m.replaceChildren(DOMPurify.sanitize(timetableHtml, { RETURN_DOM_FRAGMENT: true }));
   const wallpaper = m.querySelector('#timetable-wallpaper');
+  const wallpaperZoom = m.querySelector('#timetable-wallpaper-zoom');
+  const wallpaperZoomDialog = m.querySelector('#wallpaper-preview-dialog');
   const wallpaperOrientationSelect = m.querySelector('#wallpaper-orientation');
   const wallpaperPalette = m.querySelector('#wallpaper-palette');
   const wallpaperSize = m.querySelector('#wallpaper-size');
@@ -1188,7 +1190,10 @@ async function pgTimetable(m) {
     if (wallpaper.width !== width) wallpaper.width = width;
     if (wallpaper.height !== height) wallpaper.height = height;
     wallpaper.style.aspectRatio = `${width} / ${height}`;
-    try { drawTimetableWallpaper(wallpaper, tt, options); }
+    if (wallpaperZoom.width !== width) wallpaperZoom.width = width;
+    if (wallpaperZoom.height !== height) wallpaperZoom.height = height;
+    wallpaperZoom.style.aspectRatio = `${width} / ${height}`;
+    try { drawTimetableWallpaper(wallpaper, tt, options); drawTimetableWallpaper(wallpaperZoom, tt, options); }
     catch (error) { flash(m.querySelector('#wallpaper-msg'), 'Could not update the preview: ' + error.message); return; }
     const message = m.querySelector('#wallpaper-msg');
     if (message) message.textContent = `${width} × ${height} px PNG${options.size === 'auto' ? ' · recommended' : ''}`;
@@ -1211,6 +1216,9 @@ async function pgTimetable(m) {
   wallpaperToggles.forEach((input) => { input.onchange = refreshWallpaper; });
   wallpaperColorInputs.forEach((input) => { input.oninput = refreshWallpaper; input.onchange = refreshWallpaper; });
   drawWallpaperPreview();
+  m.querySelector('#wallpaper-zoom-open').onclick = () => wallpaperZoomDialog.showModal();
+  m.querySelector('#wallpaper-zoom-close').onclick = () => wallpaperZoomDialog.close();
+  wallpaperZoomDialog.addEventListener('click', (event) => { if (event.target === wallpaperZoomDialog) wallpaperZoomDialog.close(); });
   m.querySelector('#download-wallpaper').onclick = () => {
     // Export the latest edits even if their animation frame has not run yet.
     if (previewFrame !== null) { cancelAnimationFrame(previewFrame); previewFrame = null; }
