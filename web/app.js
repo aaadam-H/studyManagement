@@ -298,15 +298,15 @@ function forgotPasswordScreen(opts = {}) {
 
 /* ---------------- shell ---------------- */
 const ROUTES = {
-  '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], exams: ['Exams', pgExams], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
+  '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], exams: ['Exams', pgExams], services: ['UniMAP services', pgUnimapServices], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
   assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
 };
 const PUBLIC_ROUTES = {
-  '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
+  '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], services: ['UniMAP services', pgUnimapServices], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
 };
 const NAV_GROUPS = [
   ['Overview', ['']],
-  ['Academics', ['timetable', 'exams', 'courses', 'grades']],
+  ['Academics', ['timetable', 'exams', 'courses', 'grades', 'services']],
   ['Planning', ['assignments', 'calendar', 'academic', 'notes']],
   ['Community', ['bulletin', 'feedback', 'changelog']],
   ['Account & Help', ['profile', 'help']],
@@ -985,7 +985,20 @@ async function gettingStartedHtml(tt, ac) {
   return html;
 }
 
-async function pgHelp(m) {
+async function pgUnimapServices(m) {
+  const services = [
+    ['ePay · Tuition fees', 'Pay your UniMAP tuition fees through the official ePay portal.', 'https://epay.unimap.edu.my/fpx/auth-login', 'Open ePay'],
+    ['Course registration · SPODEG', 'Open the course registration system.', 'https://courseregdeg.unimap.edu.my/SPODEG/', 'Open course registration'],
+    ['Course pre-registration · SPOPREDEG', 'Open the course pre-registration system.', 'https://coursepreregdeg.unimap.edu.my/SPOPREDEG/SPO_login.jsp', 'Open pre-registration'],
+    ['OSI', 'Open the UniMAP OSI student information system.', 'https://osi.unimap.edu.my/OSI_V2/login.jsp', 'Open OSI'],
+    ['UniMAP e-Learning', 'Open the UniMAP online learning portal.', 'https://urlearn.unimap.edu.my/', 'Open e-Learning'],
+  ];
+  m.innerHTML = `<h2>UniMAP services</h2><p class="sub">Quick links to official UniMAP student services.</p>
+  <div class="unimap-services-grid">${services.map(([title, description, url, action]) => `<article class="unimap-service"><h3>${esc(title)}</h3><p>${esc(description)}</p><a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">${esc(action)} <span aria-hidden="true">↗</span></a></article>`).join('')}</div>
+  <p class="mute">These links open the official UniMAP websites in a new tab.</p>`;
+}
+
+function pgHelp(m) {
   const qa = [
     ['How do I get my timetable?', 'Upload your registration slip in <b>My Courses</b>, then open <b>Timetable</b> and pick your main group. Your classes appear under "Your week".'],
     ['I take a subject with a different group', 'On <b>Timetable</b>, step 2, change the group for that subject only. Everything else stays with your main group.'],
