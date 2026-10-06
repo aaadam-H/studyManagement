@@ -8,6 +8,7 @@ import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup,
 
 const CFG = window.STUDYHUB_CONFIG || {};
 const $app = document.getElementById('app');
+const setAppHtml = (markup) => $app.replaceChildren(DOMPurify.sanitize(markup, { RETURN_DOM_FRAGMENT: true }));
 const DAYN = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // form -> object, empty strings become null (dates/numbers in Postgres reject '')
@@ -229,7 +230,7 @@ function authScreen(mode = 'login', opts = {}) {
   const reason = !reg && opts.reason ? `<div class="card auth-reason"><b>Login required</b><p>${esc(opts.reason)}</p></div>` : '';
   const notice = !reg && (opts.notice || loginNotice) ? `<div class="card auth-reason auth-success"><p>${esc(opts.notice || loginNotice)}</p></div>` : '';
   const maintenanceNote = maintenanceGate ? `<div class="card auth-reason"><b>StudyHub is under maintenance</b><p>Student access is temporarily paused. Admins can sign in to manage the maintenance window.</p></div>` : '';
-  $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">${reg ? 'Create your student account' : 'Log in to your study planner'}</p>
+  setAppHtml(`<div class="auth"><h1>StudyHub</h1><p class="sub">${reg ? 'Create your student account' : 'Log in to your study planner'}</p>
   ${maintenanceNote}${reason}${notice}
   <form class="card" id="f">
     <label>Student ID (matric no.) <span class="req">*</span></label><input name="student_id" required inputmode="numeric" pattern="[0-9]{9}" minlength="9" maxlength="9" placeholder="YYPPP####" title="Enter the 9-digit ID in YYPPP#### format" autocomplete="username" value="${reg ? '' : esc(store.get('last_sid') || '')}">
@@ -255,7 +256,7 @@ function authScreen(mode = 'login', opts = {}) {
     <li>Track your assignments, grades and notes; see the academic calendar and current lecture week</li></ul>
     <p class="mute">New here? <a href="#" id="sw2">Create an account</a>; a short setup guide walks you through the rest.</p></div>`}
   ${reg || maintenanceGate ? '' : `<div class="auth-guest"><a class="btn ghost-link" href="#/">Continue as guest (view only)</a><span class="mute">Browse the timetable, bulletin and academic calendar without an account.</span></div>`}
-  ${FOOTER}</div>`;
+  ${FOOTER}</div>`);
   const f = document.getElementById('f');
   if (!reg && f.student_id.value) f.password.focus();
   wireInstallHint($app);
@@ -291,7 +292,7 @@ function authScreen(mode = 'login', opts = {}) {
 }
 
 function forgotPasswordScreen() {
-  $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">Reset your password</p>
+  setAppHtml(`<div class="auth"><h1>StudyHub</h1><p class="sub">Reset your password</p>
     <section class="card auth-reason"><h2>Get a reset link by email</h2>
       <p>Enter your 9-digit student ID. If a recovery email is on file, we’ll send a secure link to that address.</p>
       <form id="forgot-form">
@@ -302,7 +303,7 @@ function forgotPasswordScreen() {
       </form>
       <p class="mute">For privacy, StudyHub shows the same message whether or not an account is found. Check your inbox and spam folder.</p>
       <p><button type="button" class="ghost" id="forgot-back">Back to log in</button></p>
-    </section>${FOOTER}</div>`;
+    </section>${FOOTER}</div>`);
   document.getElementById('forgot-back').onclick = () => authScreen('login');
   document.getElementById('forgot-form').onsubmit = async (event) => {
     event.preventDefault();
@@ -324,7 +325,7 @@ function forgotPasswordScreen() {
 
 function passwordResetScreen() {
   passwordRecoveryMode = true;
-  $app.innerHTML = `<div class="auth"><h1>StudyHub</h1><p class="sub">Choose a new password</p>
+  setAppHtml(`<div class="auth"><h1>StudyHub</h1><p class="sub">Choose a new password</p>
     <section class="card auth-reason"><h2>Reset your password</h2>
       <p>Choose a password with at least 8 characters.</p>
       <form id="reset-password-form">
@@ -336,7 +337,7 @@ function passwordResetScreen() {
         <p><button type="submit">Save new password</button></p>
       </form>
       <p><button type="button" class="ghost" id="reset-cancel">Cancel and return to log in</button></p>
-    </section>${FOOTER}</div>`;
+    </section>${FOOTER}</div>`);
   document.getElementById('reset-cancel').onclick = async () => {
     passwordRecoveryMode = false;
     tryStore(() => sessionStorage.removeItem('studyhub_password_recovery'));
