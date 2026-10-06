@@ -48,9 +48,9 @@ Deno.serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  const resendKey = Deno.env.get('RESEND_API_KEY');
+  const brevoKey = Deno.env.get('BREVO_API_KEY');
   const sender = Deno.env.get('RESET_EMAIL_FROM');
-  if (!supabaseUrl || !serviceKey || !resendKey || !sender) {
+  if (!supabaseUrl || !serviceKey || !brevoKey || !sender) {
     console.error('Password recovery is missing required server configuration.');
     return json(req, { error: 'Password recovery is not configured yet.' }, 503);
   }
@@ -96,15 +96,15 @@ Deno.serve(async (req: Request) => {
     }
 
     const safeLink = escapeHtml(actionLink);
-    const mail = await fetch('https://api.resend.com/emails', {
+    const mail = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+      headers: { 'api-key': brevoKey, 'Content-Type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({
-        from: sender,
-        to: [recoveryEmail],
+        sender: { email: sender, name: 'StudyHub' },
+        to: [{ email: recoveryEmail }],
         subject: 'Reset your StudyHub password',
-        text: `We received a request to reset your StudyHub password. Use this secure link to choose a new password: ${actionLink}\n\nIf you did not request this, you can ignore this email.`,
-        html: `<p>We received a request to reset your StudyHub password.</p><p><a href="${safeLink}">Choose a new password</a></p><p>This link is single-use. If you did not request this, you can ignore this email.</p>`,
+        textContent: `We received a request to reset your StudyHub password. Use this secure link to choose a new password: ${actionLink}\n\nIf you did not request this, you can ignore this email.`,
+        htmlContent: `<p>We received a request to reset your StudyHub password.</p><p><a href="${safeLink}">Choose a new password</a></p><p>This link is single-use. If you did not request this, you can ignore this email.</p>`,
       }),
     });
     if (!mail.ok) console.error('Password recovery email delivery failed with status', mail.status);
