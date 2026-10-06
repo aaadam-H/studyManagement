@@ -14,6 +14,12 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 create table if not exists public.settings (key text primary key, value text);
+create table if not exists public.password_reset_rate_limits (
+  lookup_hash text primary key check (lookup_hash ~ '^[0-9a-f]{64}$'),
+  window_started_at timestamptz not null default now(),
+  attempts integer not null default 0 check (attempts >= 0),
+  updated_at timestamptz not null default now()
+);
 create table if not exists public.courses (code text primary key check (code ~ '^[A-Z]{3}[0-9]{5}$'), name text, credit int);
 create table if not exists public.enrollments (
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -239,6 +245,7 @@ create trigger stamp_post_author before insert on public.posts for each row exec
 -- ---------- row level security ----------
 alter table public.profiles enable row level security;
 alter table public.settings enable row level security;
+alter table public.password_reset_rate_limits enable row level security;
 alter table public.courses enable row level security;
 alter table public.enrollments enable row level security;
 alter table public.classes enable row level security;
@@ -703,6 +710,47 @@ begin
   update feedback set status = 'open' where id = any(ids) and status = 'new';
 end $$;
 
+-- Private atomic throttling for the unauthenticated password-recovery endpoint.
+create or replace function public.consume_password_reset_limits(p_student_hash text, p_ip_hash text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  student_attempts integer;
+  ip_attempts integer;
+  now_at timestamptz := now();
+begin
+  if p_student_hash !~ '^[0-9a-f]{64}$' or p_ip_hash !~ '^[0-9a-f]{64}$' then
+    return false;
+  end if;
+
+  insert into public.password_reset_rate_limits(lookup_hash, window_started_at, attempts, updated_at)
+  values (p_student_hash, now_at, 1, now_at)
+  on conflict (lookup_hash) do update
+    set attempts = case when public.password_reset_rate_limits.window_started_at < now_at - interval '1 hour'
+                        then 1 else least(public.password_reset_rate_limits.attempts + 1, 4) end,
+        window_started_at = case when public.password_reset_rate_limits.window_started_at < now_at - interval '1 hour'
+                                 then now_at else public.password_reset_rate_limits.window_started_at end,
+        updated_at = now_at
+  returning attempts into student_attempts;
+
+  insert into public.password_reset_rate_limits(lookup_hash, window_started_at, attempts, updated_at)
+  values (p_ip_hash, now_at, 1, now_at)
+  on conflict (lookup_hash) do update
+    set attempts = case when public.password_reset_rate_limits.window_started_at < now_at - interval '1 hour'
+                        then 1 else least(public.password_reset_rate_limits.attempts + 1, 61) end,
+        window_started_at = case when public.password_reset_rate_limits.window_started_at < now_at - interval '1 hour'
+                                 then now_at else public.password_reset_rate_limits.window_started_at end,
+        updated_at = now_at
+  returning attempts into ip_attempts;
+
+  delete from public.password_reset_rate_limits where updated_at < now_at - interval '1 day';
+  return student_attempts <= 3 and ip_attempts <= 60;
+end;
+$$;
+
 revoke execute on all functions in schema public from anon, authenticated, public;
 grant execute on function public.is_admin(), public.is_enrolled(text), public.save_courses(jsonb, boolean),
   public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_set_role(uuid, text),
@@ -712,6 +760,9 @@ grant execute on function public.is_admin(), public.is_enrolled(text), public.sa
   public.admin_update_feedback(bigint, text, text), public.admin_mark_feedback_read(bigint[]) to authenticated;
 grant execute on function public.public_bulletin(), public.public_settings(), public.teaching_window() to anon, authenticated;
 grant execute on function public.calendar_feed(uuid) to anon, authenticated;
+grant execute on function public.consume_password_reset_limits(text, text) to service_role;
+revoke all on table public.password_reset_rate_limits from public, anon, authenticated;
+grant all on table public.password_reset_rate_limits to service_role;
 
 -- ---------- make yourself admin (run once after you register, with your own student ID) ----------
 -- update public.profiles set role = 'admin' where student_id = 'YOUR_STUDENT_ID';

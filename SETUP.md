@@ -23,7 +23,19 @@ Left menu, **Authentication**, then **Sign In / Providers** (or **Providers**), 
 3. Replace the sample code with the contents of `supabase/functions/fetch-timetable/index.ts`, then **Deploy**.
 4. Leave "Verify JWT" / "Enforce JWT" **on**.
 
-## 4a. Automatic changelog drafts
+## 4a. Email password reset
+The sign-in page can send a one-time recovery link to the contact email saved in the student's StudyHub profile. The Supabase Auth email remains the generated student-ID address; it is only used internally to locate the account.
+
+1. In Supabase **SQL Editor**, run the updated full `supabase/schema.sql` from this repo. It adds a private, rate-limited request table/function; the new function is executable only by Supabase's service role.
+2. Create a Brevo account and API key. In Brevo, add a sender using an email inbox you can open, then verify it using the code Brevo sends. You do not need to own a domain to verify the sender email, although authenticating a domain improves delivery. Do not put this key in `web/config.js`, GitHub, or chat. See [Brevo's sender setup](https://help.brevo.com/hc/en-us/articles/208836149-Create-a-new-sender-From-name-and-From-email).
+3. In Supabase **Edge Functions**, create **`request-password-reset`** using `supabase/functions/request-password-reset/index.ts`. Turn **Verify JWT / Enforce JWT OFF** because students are logged out when they request a link. The function uses server-side secrets and its own rate limit.
+4. In the function's **Secrets** settings, add `BREVO_API_KEY`, `RESET_EMAIL_FROM` (the exact verified sender email address), and `RESET_REDIRECT_URL` set to `https://aaadam-h.github.io/studyManagement/web/`. Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; never expose the service-role key in the website.
+5. In **Authentication → URL Configuration → Redirect URLs**, allow `https://aaadam-h.github.io/studyManagement/web/`.
+6. Check that each student's profile has the correct contact email. The request page always shows the same confirmation, and limits requests to 3 per student ID and 60 per network address per hour.
+
+If you use a free mailbox address as the sender without domain authentication, the mail provider may replace the visible sender address to meet recipient-mail-provider requirements. Test delivery to a few inboxes before announcing password recovery to all students.
+
+## 4b. Automatic changelog drafts
 1. Create an Edge Function named **`changelog-ingest`** from `supabase/functions/changelog-ingest/index.ts`.
 2. Turn **Verify JWT / Enforce JWT OFF** for this function. Its code verifies a short-lived GitHub Actions OIDC token itself and only accepts this repository's changelog workflow on `main`.
 3. Each push to `main` creates a **private** changelog draft. An admin can review, edit and publish it from **Manage changelog**. The app does not expose the service-role key to GitHub or the browser.
@@ -73,6 +85,6 @@ one-time copy), **Connect Google Calendar** or **Subscribe in Apple Calendar** (
 
 ## Good to know
 - **Free-tier pause**: Supabase pauses free projects after about a week with no activity. Open the Supabase dashboard and click **Restore**; no data is lost.
-- **Forgotten passwords**: the sign-in page's **Forgot password?** option directs students to contact the admin. Admins can reset passwords on the Admin tab.
+- **Forgotten passwords**: students can request a one-time reset link to the contact email saved in their StudyHub profile. This requires the `request-password-reset` Edge Function and email-provider secrets described above; without them, contact the admin.
 - **Backups**: Supabase dashboard, **Database**, **Backups**, or export tables from the Table Editor.
 - **Updating the app**: change files in `web/`, merge to `main`, and Pages redeploys automatically. Database changes: re-run `supabase/schema.sql` (safe to re-run).
