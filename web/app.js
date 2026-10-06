@@ -1981,8 +1981,8 @@ async function pgAdminSettings(m) {
   <form class="card" id="sem"><h3>Manual semester dates</h3><p class="mute">Only used when no academic calendar is uploaded: classes repeat weekly between these dates and skip the break.</p>
   <div class="row"><div><label>Semester start</label><input type="date" name="semester_start" value="${esc(s.semester_start)}"></div><div><label>Semester end</label><input type="date" name="semester_end" value="${esc(s.semester_end)}"></div></div>
   <div class="row"><div><label>Mid-semester break start <span class="mute">(optional)</span></label><input type="date" name="break_start" value="${esc(s.break_start)}"></div><div><label>Break end <span class="mute">(optional)</span></label><input type="date" name="break_end" value="${esc(s.break_end)}"></div></div>
-  <div id="semm"></div><p><button>Save dates</button></p></form>
-;
+  <div id="semm"></div><p><button>Save dates</button></p></form>`;
+
   document.getElementById('maintenance-form').onsubmit = async (e) => {
     e.preventDefault();
     const form = e.currentTarget, values = Object.fromEntries(new FormData(form));
