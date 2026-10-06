@@ -327,7 +327,11 @@ function navigationHtml(routes, key) {
   return `${groups}<section class="nav-group nav-admin-group"><h2 class="nav-group-title">Administration</h2><div class="nav-group-links">${link('admin')}</div><details class="nav-admin-tools" ${expanded ? 'open' : ''}><summary>Admin tools</summary><div class="nav-group-links">${tools.map(link).join('')}</div></details></section>`;
 }
 const PROTECTED_LABELS = Object.fromEntries(Object.entries(ROUTES).map(([key, value]) => [key, value[0]]));
-let universalSearchCache = null, universalSearchCacheAt = 0, universalSearchKeyboardWired = false;
+let universalSearchCache = null, universalSearchCacheAt = 0, universalSearchKeyboardWired = false, universalSearchOutsideHandler = null;
+function invalidateUniversalSearchCache() {
+  universalSearchCache = null;
+  universalSearchCacheAt = 0;
+}
 async function buildUniversalSearchIndex(routes) {
   const items = Object.entries(routes).map(([key, value]) => ({
     title: value[0], detail: 'Open page', type: 'Page', href: '#/' + key,
@@ -345,16 +349,7 @@ async function buildUniversalSearchIndex(routes) {
     getExamSlip(),
   ];
   if (routes.admin) requests.push(q(sb.rpc('admin_users')));
-  const settled = await Promise.allSettled(requests);
-  const value = (index, fallback) => settled[index]?.status === 'fulfilled' ? settled[index].value : fallback;
-  const courses = value(0, []);
-  const timetable = value(1, null);
-  const assignments = value(2, []);
-  const notes = value(3, []);
-  const grades = value(4, []);
-  const bulletin = value(5, { posts: [], mine: [] });
-  const academic = value(6, { events: [] });
-  const examSlip = value(7, null);
+  const [courses, timetable, assignments, notes, grades, bulletin, academic, examSlip, adminUsers] = await Promise.all(requests);
   const add = (title, detail, type, href, extra = '') => {
     const text = `${title || ''} ${detail || ''} ${extra || ''}`.toLocaleLowerCase();
     items.push({ title: title || type, detail: detail || '', type, href, text });
@@ -368,12 +363,11 @@ async function buildUniversalSearchIndex(routes) {
   assignments.forEach((item) => add(item.title, [item.course_code || '', item.due_date ? `Due ${item.due_date}` : '', item.done ? 'Completed' : 'Pending'].filter(Boolean).join(' · '), 'Assignment', '#/assignments'));
   notes.forEach((item) => add(item.title, item.course_code || '', 'Note', '#/notes', item.body || ''));
   grades.forEach((item) => add(item.item, item.course_code || '', 'Grade', '#/grades'));
-  (bulletin?.posts || []).filter((post) => routes.admin || !post.course_code || (bulletin.mine || []).includes(post.course_code))
-    .forEach((post) => add(post.title, [post.course_code || 'General', post.kind || ''].filter(Boolean).join(' · '), 'Bulletin', '#/bulletin', post.body || ''));
+  (bulletin?.posts || []).forEach((post) => add(post.title, [post.course_code || 'General', post.kind || ''].filter(Boolean).join(' · '), 'Bulletin', '#/bulletin', post.body || ''));
   (academic?.events || []).forEach((event) => add(event.title, [event.start_date, event.end_date].filter(Boolean).join(' – '), 'Academic calendar', '#/academic'));
   (examSlip?.exams || []).forEach((exam) => add(exam.name || exam.code, [exam.code || '', exam.date || '', exam.venue || ''].filter(Boolean).join(' · '), 'Exam', '#/exams'));
   if (routes.admin) {
-    (value(8, []) || []).forEach((user) => add(user.name, [user.student_id, user.program, user.email].filter(Boolean).join(' · '), 'Student account', `#/admin/user/${user.id}`));
+    (adminUsers || []).forEach((user) => add(user.name, [user.student_id, user.program, user.email].filter(Boolean).join(' · '), 'Student account', `#/admin/user/${user.id}`));
   }
   return items;
 }
@@ -443,7 +437,11 @@ function mountUniversalSearch(main, routes) {
       }
       let index;
       try { index = await universalSearchCache.promise; }
-      catch { index = Object.entries(routes).map(([key, route]) => ({ title: route[0], detail: 'Open page', type: 'Page', href: '#/' + key, text: `${route[0]} ${key}`.toLocaleLowerCase() })); }
+      catch {
+        universalSearchCache = null;
+        if (current === requestId && input.isConnected) setResults([], 'Some results could not be loaded. Check your connection and try again.');
+        return;
+      }
       if (current !== requestId || !input.isConnected) return;
       const matches = index.filter((item) => item.text.includes(query))
         .sort((a, b) => Number(b.title.toLocaleLowerCase().startsWith(query)) - Number(a.title.toLocaleLowerCase().startsWith(query)))
@@ -458,9 +456,11 @@ function mountUniversalSearch(main, routes) {
       if (first && !results.hidden) { event.preventDefault(); first.click(); }
     }
   });
-  wrapper.addEventListener('click', (event) => {
+  if (universalSearchOutsideHandler) document.removeEventListener('click', universalSearchOutsideHandler);
+  universalSearchOutsideHandler = (event) => {
     if (!wrapper.contains(event.target)) setResults([]);
-  });
+  };
+  document.addEventListener('click', universalSearchOutsideHandler);
   if (!universalSearchKeyboardWired) {
     document.addEventListener('keydown', (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
@@ -484,6 +484,7 @@ async function boot() {
   render();
 }
 async function render() {
+  invalidateUniversalSearchCache();
   let key = location.hash.replace(/^#\/?/, '').split('/')[0] || '';
   const maintenance = await getMaintenance();
   armMaintenanceTimer(maintenance);
