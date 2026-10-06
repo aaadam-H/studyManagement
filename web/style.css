@@ -561,3 +561,11 @@ button,.btn,input,select,textarea{border-radius:7px}
   .admin-hub-grid{grid-template-columns:minmax(0,1fr)}
   .nav-admin-tools .nav-group-links{grid-template-columns:minmax(0,1fr)}
 }
+
+/* UniMAP service shortcuts */
+.unimap-services-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.unimap-service{display:flex;min-width:0;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.unimap-service h3{margin:0}
+.unimap-service p{flex:1;margin:0;color:var(--mute)}
+.unimap-service .btn{display:inline-flex;align-items:center;gap:7px}
+@media(max-width:760px){.unimap-services-grid{grid-template-columns:minmax(0,1fr)}}
