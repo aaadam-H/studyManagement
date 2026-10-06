@@ -1,6 +1,6 @@
 // Public endpoint. Supabase Gateway JWT verification should be disabled; the request is
 // intentionally unauthenticated and protected by hashed-ID/IP throttles in Postgres.
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.117.2';
 
 const APP_URL = Deno.env.get('RESET_REDIRECT_URL') || 'https://aaadam-h.github.io/studyManagement/web/';
 const GENERIC_MESSAGE = 'If a recovery email is on file for that student ID, a reset link is on its way.';
