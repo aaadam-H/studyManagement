@@ -23,6 +23,15 @@ const b = parseTimetableDoc(d2).classes;
 assert.deepEqual(b.map((c) => [c.course_code, c.day, c.start, c.end]), [['IMJ41103', 1, '08:00', '10:00'], ['IMJ47503', 3, '10:00', '11:00']]);
 ok('timetable: transposed layout (days across)');
 
+const { document: mergedRows } = parseHTML(`<table><tr><th>Time</th><th>Monday</th><th>Tuesday</th><th>Wednesday</th></tr>
+<tr><th>15:00-15:50</th><td rowspan="2">IMJ41002 LAB</td><td rowspan="2">IMJ41103 LAB</td><td>IMQ22103 LECTURE DK 5</td></tr>
+<tr><th>16:00-16:50</th></tr>
+<tr><th>17:00-17:50</th><td>IMJ41002 LECTURE</td><td>IMJ41103 LECTURE</td><td>IMQ22103 LECTURE ONLINE</td></tr></table>`);
+const mergedClasses = parseTimetableDoc(mergedRows).classes;
+assert.ok(mergedClasses.some((c) => c.course_code === 'IMQ22103' && c.day === 3 && c.start === '15:00'));
+assert.ok(mergedClasses.some((c) => c.course_code === 'IMQ22103' && c.day === 3 && c.start === '17:00'), 'merged cells in earlier rows must not shift the day columns');
+ok('timetable: transposed layout keeps day columns aligned after rowspans');
+
 // real UniMAP page structure (FET): labelled spans, one table per group
 const { document: u } = parseHTML(fs.readFileSync(new URL('./fixtures/unimap-sample.html', import.meta.url), 'utf8'));
 const all = parseTimetableDoc(u);

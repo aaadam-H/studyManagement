@@ -119,17 +119,21 @@ function tableToRows(table) {
   for (const tr of table.querySelectorAll('tr')) {
     const cells = [];
     let col = 0;
-    const skip = () => { while (carry[col] && carry[col].left > 0) { carry[col].left--; col++; } };
     for (const td of tr.children) {
       if (!/^T[DH]$/i.test(td.tagName)) continue;
-      skip();
       const cs = parseInt(td.getAttribute('colspan') || '1', 10) || 1;
       const rs = parseInt(td.getAttribute('rowspan') || '1', 10) || 1;
+      while (true) {
+        while (carry[col] > 0) col++;
+        if (!Array.from({ length: cs }, (_, k) => carry[col + k] > 0).some(Boolean)) break;
+        col++;
+      }
       cells.push({ el: td, text: cellText(td), colStart: col, colEnd: col + cs - 1 });
-      if (rs > 1) for (let k = 0; k < cs; k++) carry[col + k] = { left: rs - 1 };
+      if (rs > 1) for (let k = 0; k < cs; k++) carry[col + k] = Math.max(carry[col + k] || 0, rs);
       col += cs;
     }
     rows.push(cells);
+    for (let i = 0; i < carry.length; i++) if (carry[i] > 0) carry[i]--;
   }
   return rows;
 }
