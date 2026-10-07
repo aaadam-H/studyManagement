@@ -32,6 +32,14 @@ assert.ok(mergedClasses.some((c) => c.course_code === 'IMQ22103' && c.day === 3 
 assert.ok(mergedClasses.some((c) => c.course_code === 'IMQ22103' && c.day === 3 && c.start === '17:00'), 'merged cells in earlier rows must not shift the day columns');
 ok('timetable: transposed layout keeps day columns aligned after rowspans');
 
+const { document: timedRows } = parseHTML(`<table><tr><th>Time</th><th>Monday</th><th>Tuesday</th><th>Wednesday</th><th>Thursday</th></tr>
+<tr><th>12:00-12:50</th><td></td><td></td><td></td><td rowspan="2">IMJ47203 - SOFTWARE ENGINEERING LECTURE PAUH PUTRA DK 3</td></tr>
+<tr><th>13:00-13:50</th><td></td><td>IMJ47503 LECTURE ONLINE</td><td></td></tr></table>`);
+const timedClasses = parseTimetableDoc(timedRows).classes;
+assert.ok(timedClasses.some((c) => c.course_code === 'IMJ47203' && c.day === 4 && c.start === '12:00' && c.end === '13:50'), 'rowspan class duration must cover both time slots');
+assert.ok(timedClasses.some((c) => c.course_code === 'IMJ47503' && c.day === 2 && c.start === '13:00' && c.end === '13:50'), 'single-slot rows following a rowspan must keep their correct day and time');
+ok('timetable: transposed rowspan extends class duration across every covered slot');
+
 // real UniMAP page structure (FET): labelled spans, one table per group
 const { document: u } = parseHTML(fs.readFileSync(new URL('./fixtures/unimap-sample.html', import.meta.url), 'utf8'));
 const all = parseTimetableDoc(u);

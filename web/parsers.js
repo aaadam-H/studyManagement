@@ -261,11 +261,17 @@ function parseTable(table, section) {
   if (dayHeader) {
     const dayByCol = {};
     for (const c of dayHeader) if (dayOf(c.text)) for (let k = c.colStart; k <= c.colEnd; k++) dayByCol[k] = dayOf(c.text);
-    for (const r of rows.slice(rows.indexOf(dayHeader) + 1)) {
+    const firstDataRow = rows.indexOf(dayHeader) + 1;
+    for (const [rowOffset, r] of rows.slice(firstDataRow).entries()) {
       const t = r[0] ? times(r[0].text) : [];
       if (!t.length) continue;
       for (const c of r.slice(1)) {
-        if (dayByCol[c.colStart]) for (const info of parseCell(c)) out.push({ ...info, section, day: dayByCol[c.colStart], start: t[0], end: t[1] || t[0] });
+        if (dayByCol[c.colStart]) {
+          const span = parseInt(c.el.getAttribute('rowspan') || '1', 10) || 1;
+          const lastRow = rows[firstDataRow + rowOffset + span - 1];
+          const lastTime = lastRow?.[0] ? times(lastRow[0].text) : [];
+          for (const info of parseCell(c)) out.push({ ...info, section, day: dayByCol[c.colStart], start: t[0], end: lastTime[1] || lastTime[0] || t[1] || t[0] });
+        }
       }
     }
   }
