@@ -379,6 +379,22 @@ button,.btn,input,select,textarea{border-radius:7px}
 .calendar-part-list .btn{flex:0 0 auto}
 @media(max-width:420px){.calendar-part-list>div{align-items:flex-start;flex-direction:column}.calendar-part-list .btn{width:100%}}
 
+.manual-class-form{display:grid;gap:10px}
+.manual-class-form>.row{display:grid;gap:10px;margin:0}
+.manual-class-form>.row:first-child{grid-template-columns:repeat(2,minmax(0,1fr))}
+.manual-class-form>.row:nth-child(2){grid-template-columns:minmax(0,1fr) repeat(2,minmax(120px,1fr))}
+.manual-class-form>.row:nth-child(3){grid-template-columns:minmax(130px,1fr) minmax(180px,2fr) auto}
+.manual-class-form>.row>*{min-width:0;max-width:none}
+.manual-class-form label{display:block;margin-bottom:4px}
+.manual-class-form #manual-class-submit{min-height:44px;align-self:end}
+.manual-class-feedback:empty{display:none}
+.manual-class-feedback:not(:empty){margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:7px;background:var(--bg)}
+.manual-class-feedback .err,.manual-class-feedback .ok{margin:0}
+@media(max-width:600px){
+  .manual-class-form>.row:first-child,.manual-class-form>.row:nth-child(2),.manual-class-form>.row:nth-child(3){grid-template-columns:minmax(0,1fr)}
+  .manual-class-form #manual-class-submit{width:100%}
+}
+
 @media(max-width:900px){
   .registered-subjects,.registered-subjects tbody{display:block;width:100%}
   .registered-subjects thead{display:none}

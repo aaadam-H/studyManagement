@@ -5,6 +5,8 @@ import DOMPurify from './vendor/purify.es.mjs';
 import { longHolidays } from './holidays.js?v=1.1.11';
 import { createZip } from './zip.js?v=1.2.17';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.2.27';
+import { restoreCalendarSubscribeLinks, supportsAppleCalendarSubscribe } from './calendar-links.js?v=1.2.34';
+import { readManualClassForm, wireManualClassButton } from './manual-class.js?v=1.2.34';
 
 const CFG = window.STUDYHUB_CONFIG || {};
 const $app = document.getElementById('app');
@@ -12,17 +14,21 @@ const setAppHtml = (markup) => $app.replaceChildren(DOMPurify.sanitize(markup, {
 const DAYN = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let manualClassSaveHandler = null;
-document.addEventListener('click', (event) => {
-  const button = event.target.closest?.('#manual-class-submit');
-  if (!button || !manualClassSaveHandler || !button.isConnected) return;
-  event.preventDefault();
-  manualClassSaveHandler(event);
-});
+wireManualClassButton(document, () => manualClassSaveHandler, (error) => {
+    console.error('Manual class save failed:', error);
+    const submit = document.getElementById('manual-class-submit');
+    const feedback = document.getElementById('mcm');
+    if (submit) { submit.disabled = false; submit.textContent = 'Add class'; }
+    if (feedback) {
+      flash(feedback, error.message || 'Could not add this class. Please try again.');
+      feedback.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  });
 // form -> object, empty strings become null (dates/numbers in Postgres reject '')
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.33';
+const APP_VERSION = '1.2.34';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1374,7 +1380,7 @@ async function pgTimetable(m) {
       : '<span class="mute">Not in the loaded timetable (it may be for a different semester). Add it manually below.</span>'}</td></tr>`).join('')}</table></div>` : ''}
   <div class="card"><h3>Add a class manually</h3>
     <p class="mute">For classes that are missing or different from the university timetable.</p>
-    <form id="mc"><div class="row">
+    <form id="mc" class="manual-class-form"><div class="row">
       <div><label>Subject</label><select name="course_code">${courseOpts}<option value="">Other (type a title)</option></select></div>
       <div><label>Class title</label><input name="title" maxlength="200" placeholder="Choose a subject or enter a class title"><small class="mute">Selecting a subject fills its name. Edit it to use a custom title.</small></div></div>
     <div class="row"><div><label>Day</label><select name="day" required>${DAYN.slice(1).map((d, i) => `<option value="${i + 1}">${d}</option>`).join('')}</select></div>
@@ -1542,8 +1548,9 @@ async function pgTimetable(m) {
   };
   const manualClassForm = m.querySelector('#mc');
   const manualClassFeedback = m.querySelector('#mcm');
-  const manualSubject = manualClassForm.elements.course_code;
-  const manualTitle = manualClassForm.elements.title;
+  const manualField = (name) => manualClassForm.querySelector(`[name="${name}"]`);
+  const manualSubject = manualField('course_code');
+  const manualTitle = manualField('title');
   const manualSubmit = m.querySelector('#manual-class-submit');
   let autoTitle = '';
   let manualClassSaving = false;
@@ -1563,28 +1570,14 @@ async function pgTimetable(m) {
   const saveManualClass = async (e) => {
     e.preventDefault();
     if (manualClassSaving || !manualClassForm.isConnected) return;
-    const form = manualClassForm;
-    const courseCode = manualSubject.value.trim();
-    const title = manualTitle.value.trim();
-    const start = form.elements.start_time.value;
-    const end = form.elements.end_time.value;
     manualClassFeedback.setAttribute('aria-live', 'assertive');
-    if (!courseCode && !title) return reportManualClass('Choose a subject or enter a class title.');
-    if (!start || !end) return reportManualClass('Enter both a start and end time.');
-    if (end <= start) return reportManualClass('End time must be after start time.');
+    let payload;
+    try { payload = readManualClassForm(manualClassForm); }
+    catch (error) { return reportManualClass(error.message); }
     manualClassSaving = true;
     manualSubmit.disabled = true;
     manualSubmit.textContent = 'Saving…';
     reportManualClass('Saving class to your timetable…', true);
-    const payload = {
-      course_code: courseCode || null,
-      title: title || null,
-      day: Number(form.elements.day.value),
-      start_time: start,
-      end_time: end,
-      kind: form.elements.kind.value || null,
-      venue: form.elements.venue.value.trim() || null,
-    };
     try {
       await q(sb.from('my_classes').insert(payload).select('id').single());
     } catch (er) {
@@ -1621,6 +1614,7 @@ function calendarCard(tt, ac) {
   // Google's phone app can't add a calendar from a link, only the website (in desktop mode) can
   const ua = navigator.userAgent;
   const android = /Android/i.test(ua), ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const appleCalendar = supportsAppleCalendarSubscribe(ua, navigator.maxTouchPoints);
   const google = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
   const googlePhoneSteps = `<p>The Google Calendar app cannot subscribe from a link. To use Google Calendar:</p>
     <ol><li>Tap <b>Copy calendar link</b>.</li><li>Open <b>Add by URL</b> in the Google Calendar website. In Chrome, use <b>&#8942; &rsaquo; Desktop site</b>.</li>
@@ -1633,12 +1627,12 @@ function calendarCard(tt, ac) {
   <p class="mute">Your classes repeat weekly: ${esc(range)}. Times are Malaysia time.</p>
   <label for="calendar-mode">Calendar format</label><select id="calendar-mode"><option value="all">All-in-one calendar</option><option value="separate">Separate calendars</option><option value="package">Download package (.zip)</option></select>
   <section class="calendar-mode" data-calendar-mode="all"><div class="btns">
-    ${ios ? `<a class="btn" href="${esc(webcal)}">Subscribe in Apple Calendar</a>` : ''}
+    ${appleCalendar ? `<a class="btn" data-calendar-subscribe href="${esc(https)}">Subscribe in Apple Calendar</a>` : ''}
     ${android || ios ? '' : `<a class="btn" target="_blank" rel="noopener" href="${esc(google)}">Connect Google Calendar</a>`}
     <button id="ics" type="button" class="${android || ios ? 'ghost' : ''}">Download .ics${android ? '' : ' (Apple / Outlook)'}</button>
-    ${ios || android ? '' : `<a class="btn ghost-link" href="${esc(webcal)}">Subscribe in Apple Calendar</a>`}
-  </div>${phoneHelp}</section>
-  <section class="calendar-mode" data-calendar-mode="separate" hidden><p class="mute">Subscribe to only the calendars you want. Add each one separately in Apple Calendar, then choose its color there.</p><div class="calendar-part-list">${CALENDAR_PARTS.map(([category, label]) => `<div><b>${label}</b><a class="btn ghost-link calendar-subscribe" href="${esc(feedUrl(category).replace(/^https:/, 'webcal:'))}" data-feed-url="${esc(feedUrl(category))}">Subscribe</a></div>`).join('')}</div></section>
+    ${appleCalendar && !ios ? `<a class="btn ghost-link" data-calendar-subscribe href="${esc(https)}">Subscribe in Apple Calendar</a>` : ''}
+  </div>${phoneHelp}${!appleCalendar && !android ? '<p class="mute calendar-platform-note">Apple Calendar subscriptions open on iPhone, iPad, or Mac. On this device, use Download .ics for a one-time copy or Connect Google Calendar for a live calendar.</p>' : ''}</section>
+  <section class="calendar-mode" data-calendar-mode="separate" hidden><p class="mute">${appleCalendar ? 'Subscribe to only the calendars you want. Add each one separately in Apple Calendar, then choose its color there.' : 'Separate live subscriptions need an Apple device with Calendar. You can download the calendar package below and import the calendars on an Apple device.'}</p><div class="calendar-part-list">${CALENDAR_PARTS.map(([category, label]) => `<div><b>${label}</b>${appleCalendar ? `<a class="btn ghost-link calendar-subscribe" data-calendar-subscribe href="${esc(feedUrl(category))}" data-feed-url="${esc(feedUrl(category))}">Subscribe</a>` : '<span class="mute">Apple device required</span>'}</div>`).join('')}</div></section>
   <section class="calendar-mode" data-calendar-mode="package" hidden><p class="mute">Download a ZIP containing separate .ics files for each class type and holidays. Import the calendars you want, then set their colors in Apple Calendar.</p><button type="button" id="ics-package">Download calendar package</button></section>
   <div id="icm" aria-live="polite"></div>
   <details><summary>Live link and help</summary>
@@ -1651,6 +1645,7 @@ function calendarCard(tt, ac) {
   </details></div>`;
 }
 function wireCalendarCard(m) {
+  restoreCalendarSubscribeLinks(m, CFG.SUPABASE_URL);
   const msg = document.getElementById('icm');
   const mode = document.getElementById('calendar-mode');
   mode.onchange = () => m.querySelectorAll('[data-calendar-mode]').forEach((section) => { section.hidden = section.dataset.calendarMode !== mode.value; });
