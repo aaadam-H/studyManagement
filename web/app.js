@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.28';
+const APP_VERSION = '1.2.29';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1333,7 +1333,7 @@ async function pgTimetable(m) {
     return found;
   };
   const clashes = findClashes(tt.classes);
-  const courseOpts = tt.courses.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('');
+  const courseOpts = tt.courses.map((c) => `<option value="${esc(c.code)}" data-title="${esc(c.name || '')}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('');
   const timetableHtml = `<h2>Timetable</h2><p class="sub">Built from your registered subjects and the university timetable. Mix-and-match groups are fine.</p>
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
   ${noData ? `<div class="card">The university timetable has not been loaded yet. ${isAdmin() ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
@@ -1369,7 +1369,7 @@ async function pgTimetable(m) {
     <p class="mute">For classes that are missing or different from the university timetable.</p>
     <form id="mc"><div class="row">
       <div><label>Subject</label><select name="course_code">${courseOpts}<option value="">Other (type a title)</option></select></div>
-      <div><label>Title <span class="mute">(optional)</span></label><input name="title" maxlength="200" placeholder="e.g. Replacement class"></div></div>
+      <div><label>Class title</label><input name="title" maxlength="200" placeholder="Choose a subject or enter a class title"><small class="mute">Selecting a subject fills its name. Edit it to use a custom title.</small></div></div>
     <div class="row"><div><label>Day</label><select name="day" required>${DAYN.slice(1).map((d, i) => `<option value="${i + 1}">${d}</option>`).join('')}</select></div>
       <div><label>Start</label><input type="time" name="start_time" required></div><div><label>End</label><input type="time" name="end_time" required></div></div>
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
@@ -1532,12 +1532,50 @@ async function pgTimetable(m) {
       if (saveGroupChanges.isConnected) saveGroupChanges.textContent = 'Save group changes';
     }
   };
-  document.getElementById('mc').onsubmit = async (e) => {
+  const manualClassForm = m.querySelector('#mc');
+  const manualClassFeedback = m.querySelector('#mcm');
+  const manualSubject = manualClassForm.elements.course_code;
+  const manualTitle = manualClassForm.elements.title;
+  let autoTitle = '';
+  manualSubject.addEventListener('change', () => {
+    if (!manualTitle.value.trim() || manualTitle.value === autoTitle) {
+      autoTitle = manualSubject.selectedOptions[0]?.dataset.title || '';
+      manualTitle.value = autoTitle;
+    }
+    manualClassFeedback.replaceChildren();
+  });
+  manualClassForm.addEventListener('input', () => manualClassFeedback.replaceChildren());
+  manualClassForm.onsubmit = async (e) => {
     e.preventDefault();
-    const d = fd(e.target);
-    if (!d.course_code && !d.title) return flash(document.getElementById('mcm'), 'Choose a subject or type a title');
-    if (d.end_time <= d.start_time) return flash(document.getElementById('mcm'), 'End time must be after start time');
-    try { await q(sb.from('my_classes').insert({ ...d, day: +d.day })); render(); } catch (er) { flash(document.getElementById('mcm'), er.message); }
+    const form = e.currentTarget;
+    const courseCode = manualSubject.value.trim();
+    const title = manualTitle.value.trim();
+    const start = form.elements.start_time.value;
+    const end = form.elements.end_time.value;
+    if (!courseCode && !title) return flash(manualClassFeedback, 'Choose a subject or enter a class title.');
+    if (!start || !end) return flash(manualClassFeedback, 'Enter both a start and end time.');
+    if (end <= start) return flash(manualClassFeedback, 'End time must be after start time.');
+    const submit = form.querySelector('button[type="submit"], button:not([type])');
+    submit.disabled = true;
+    submit.textContent = 'Adding…';
+    const payload = {
+      course_code: courseCode || null,
+      title: title || null,
+      day: Number(form.elements.day.value),
+      start_time: start,
+      end_time: end,
+      kind: form.elements.kind.value || null,
+      venue: form.elements.venue.value.trim() || null,
+    };
+    try {
+      await q(sb.from('my_classes').insert(payload));
+      await render();
+      flash(document.getElementById('mcm'), 'Class added to your timetable.', true);
+    } catch (er) {
+      flash(manualClassFeedback, er.message || 'Could not add this class. Please try again.');
+      submit.disabled = false;
+      submit.textContent = 'Add class';
+    }
   };
   m.querySelectorAll('[data-rmc]').forEach((b) => (b.onclick = async () => { await q(sb.from('my_classes').delete().eq('id', b.dataset.rmc)); render(); }));
   wireCalendarCard(m);
