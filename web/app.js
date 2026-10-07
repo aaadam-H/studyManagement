@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.21';
+const APP_VERSION = '1.2.22';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -544,7 +544,7 @@ async function render() {
         <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu</button></div>
       <div class="nav-links" id="nav-links">
         ${navigationHtml(PUBLIC_ROUTES, key)}
-        <div class="who guest-who"><b>Guest mode</b><br><span>View only</span><br><a class="login-link" href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">UniMAP e-Learning</a><br><a class="login-link" href="#/courses">Log in</a></div>
+        <div class="who guest-who"><b>Guest mode</b><br><span>View only</span><br><a class="login-link" href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">URLearn</a><br><a class="login-link" href="#/courses">Log in</a></div>
       </div></nav>
       <div class="content"><main id="main">Loading...</main>${FOOTER}</div></div>`;
     const nav = document.getElementById('nav');
@@ -568,11 +568,11 @@ async function render() {
       <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu"><span class="burger" aria-hidden="true"></span>Menu<span class="menu-dot" id="menu-dot" hidden></span></button></div>
     <div class="nav-links" id="nav-links">
     ${navigationHtml(routes, key)}
-    <section class="mobile-account" aria-label="Personal account"><b>${esc(me.name)}</b><span>${esc(me.student_id)}${me.role === 'admin' ? ' · Admin' : ''}</span><div class="mobile-account-actions"><a href="#/profile">Edit profile</a><a href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">UniMAP e-Learning</a>${me.role === 'admin' ? `<button type="button" id="mobile-student-preview" class="ghost">${studentPreview ? 'Exit student view' : 'View as student'}</button>` : ''}<button type="button" id="mobile-logout" class="ghost account-logout">Log out</button></div></section>
+    <section class="mobile-account" aria-label="Personal account"><b>${esc(me.name)}</b><span>${esc(me.student_id)}${me.role === 'admin' ? ' · Admin' : ''}</span><div class="mobile-account-actions"><a href="#/profile">Edit profile</a><a href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">URLearn</a>${me.role === 'admin' ? `<button type="button" id="mobile-student-preview" class="ghost">${studentPreview ? 'Exit student view' : 'View as student'}</button>` : ''}<button type="button" id="mobile-logout" class="ghost account-logout">Log out</button></div></section>
     </div></nav>
     <div class="content"><main id="main">Loading...</main>
     <aside class="account-rail" aria-label="Account"><section class="account-panel"><h2>Personal info</h2><b class="account-name">${esc(me.name)}</b><span class="account-id">${esc(me.student_id)}${me.role === 'admin' ? ' · Admin' : ''}</span>
-      <a class="account-link" href="#/profile">Edit profile</a><a class="account-link external" href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">UniMAP e-Learning</a>
+      <a class="account-link" href="#/profile">Edit profile</a><a class="account-link external" href="https://urlearn.unimap.edu.my/" target="_blank" rel="noopener">URLearn</a>
       ${me.role === 'admin' ? `<button type="button" id="student-preview" class="sm ghost account-preview">${studentPreview ? 'Exit student view' : 'View as student'}</button>` : ''}<button type="button" id="lo" class="ghost account-logout">Log out</button></section></aside>
     ${FOOTER}</div></div>`;
   const logOut = async () => { await sb.auth.signOut(); };
@@ -1048,8 +1048,10 @@ async function pgUnimapServices(m) {
     ['Course registration · SPODEG', 'Open the course registration system.', 'https://courseregdeg.unimap.edu.my/SPODEG/', 'Open course registration'],
     ['Course pre-registration · SPOPREDEG', 'Open the course pre-registration system.', 'https://coursepreregdeg.unimap.edu.my/SPOPREDEG/SPO_login.jsp', 'Open pre-registration'],
     ['OSI', 'Open the UniMAP OSI student information system.', 'https://osi.unimap.edu.my/OSI_V2/login.jsp', 'Open OSI'],
-    ['UniMAP e-Learning', 'Open the UniMAP online learning portal.', 'https://urlearn.unimap.edu.my/', 'Open e-Learning'],
+    ['URLearn', 'Open the UniMAP online learning portal.', 'https://urlearn.unimap.edu.my/', 'Open URLearn'],
     ['UniParcel', 'Track parcels through the UniMAP parcel service.', 'https://uniparcel.unimap.edu.my/', 'Open UniParcel'],
+    ['Academic UniMAP', 'Visit the official UniMAP academic information site.', 'https://sites.google.com/unimap.edu.my/academicunimap/home', 'Open Academic UniMAP'],
+    ['Class timetable', 'Open UniMAP’s official class timetable page.', 'https://sites.google.com/unimap.edu.my/academicunimap/class-timetable', 'Open class timetable'],
   ];
   m.innerHTML = `<h2>UniMAP services</h2><p class="sub">Quick links to official UniMAP student services.</p>
   <div class="unimap-services-grid">${services.map(([title, description, url, action]) => `<article class="unimap-service"><h3>${esc(title)}</h3><p>${esc(description)}</p><a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">${esc(action)} <span aria-hidden="true">↗</span></a></article>`).join('')}</div>
@@ -1314,19 +1316,22 @@ async function pgTimetable(m) {
     catch { scheduleError = true; }
   }
   const scheduleFor = (c, group) => groupScheduleText(groupSchedules[c.code]?.[group]);
-  const clashes = {};
-  for (let i = 0; i < tt.classes.length; i++) {
-    const a = tt.classes[i];
-    if (!a.course_code || a.custom) continue;
-    for (let j = i + 1; j < tt.classes.length; j++) {
-      const b = tt.classes[j];
-      if (!b.course_code || b.custom || a.course_code === b.course_code || a.day !== b.day) continue;
-      if (a.start_time >= b.end_time || b.start_time >= a.end_time) continue;
-      const note = { code: b.course_code, day: b.day, start: b.start_time, end: b.end_time };
-      (clashes[a.course_code] ||= []).push(note);
-      (clashes[b.course_code] ||= []).push({ code: a.course_code, day: a.day, start: a.start_time, end: a.end_time });
+  const findClashes = (classes) => {
+    const found = {};
+    for (let i = 0; i < classes.length; i++) {
+      const a = classes[i];
+      if (!a.course_code || a.custom) continue;
+      for (let j = i + 1; j < classes.length; j++) {
+        const b = classes[j];
+        if (!b.course_code || b.custom || a.course_code === b.course_code || a.day !== b.day) continue;
+        if (a.start_time >= b.end_time || b.start_time >= a.end_time) continue;
+        (found[a.course_code] ||= []).push({ code: b.course_code, day: b.day, start: b.start_time, end: b.end_time });
+        (found[b.course_code] ||= []).push({ code: a.course_code, day: a.day, start: a.start_time, end: a.end_time });
+      }
     }
-  }
+    return found;
+  };
+  const clashes = findClashes(tt.classes);
   const courseOpts = tt.courses.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('');
   const timetableHtml = `<h2>Timetable</h2><p class="sub">Built from your registered subjects and the university timetable. Mix-and-match groups are fine.</p>
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
@@ -1344,7 +1349,7 @@ async function pgTimetable(m) {
       <p class="mute">Subject names, days and class times are always shown.</p>
     </fieldset></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Preview of your timetable wallpaper"></canvas><dialog class="wallpaper-zoom-dialog" id="wallpaper-preview-dialog" aria-labelledby="wallpaper-preview-title"><div class="wallpaper-zoom-head"><h3 id="wallpaper-preview-title">Wallpaper preview</h3><button type="button" class="ghost" id="wallpaper-zoom-close" aria-label="Close enlarged preview">Close</button></div><canvas id="timetable-wallpaper-zoom" width="1080" height="1920" aria-label="Enlarged live preview of your timetable wallpaper"></canvas></dialog><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><button type="button" class="ghost" id="wallpaper-zoom-open" aria-haspopup="dialog">Zoom preview</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? 'Preparing preview…' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   <p class="mute timetable-source">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>
-  <details class="timetable-settings"><summary>Groups, classes and calendar settings</summary>
+  <details class="timetable-settings" id="timetable-settings"><summary>Groups, classes and calendar settings</summary>
   ${tt.myCourseCount && !noData ? `<div class="card"><h3>Your main group</h3>
     <p class="mute">Pick the group you mostly attend with. Groups teaching the most of your subjects are listed first.</p>
     ${tt.groupOptions.length ? `<div class="row"><div><select id="mg"><option value="">- choose your group -</option>${tt.groupOptions.map((o) => `<option value="${esc(o.group)}" ${o.group === tt.main ? 'selected' : ''}>${esc(groupLabel(o.group))} - teaches ${o.n} of your ${tt.myCourseCount} subjects</option>`).join('')}</select></div></div>`
@@ -1352,7 +1357,7 @@ async function pgTimetable(m) {
   <div class="card"><h3>Group for each subject</h3>
     <p class="mute">Took a subject with a different group? Change it here. Choose "Hide" for subjects without scheduled classes.</p>
     ${scheduleError ? '<p class="mute">Group schedules could not be loaded. You can still choose a group; reload to retry the schedule details.</p>' : ''}
-    <table class="subject-groups"><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr><td><b>${esc(c.code)}</b> ${esc(c.name || '')}${(clashes[c.code] || []).map((clash) => `<span class="clash-note">Schedule clash with ${esc(clash.code)} on ${esc(DAYN[clash.day])}, ${esc(clash.start)}-${esc(clash.end)}</span>`).join('')}</td><td>
+    <table class="subject-groups"><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr data-course-code="${esc(c.code)}" class="${clashes[c.code]?.length ? 'has-clash' : ''}"><td><b>${esc(c.code)}</b> ${esc(c.name || '')}<div class="clash-notices" aria-live="polite">${(clashes[c.code] || []).map((clash) => `<span class="clash-note">Schedule clash with ${esc(clash.code)} on ${esc(DAYN[clash.day])}, ${esc(clash.start)}-${esc(clash.end)}</span>`).join('')}</div></td><td>
       ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}" data-search aria-label="Group for ${esc(c.code)}">
         <option value="" ${!c.section ? 'selected' : ''}>${tt.main && c.groups.includes(tt.main) ? 'Same as main group — ' + esc(scheduleFor(c, tt.main)) : c.groups.length === 1 ? 'Only group: ' + esc(prettyGroup(c.groups[0])) + ' — ' + esc(scheduleFor(c, c.groups[0])) : '- choose -'}</option>
         ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(prettyGroup(g))} — ${esc(scheduleFor(c, g))}</option>`).join('')}
@@ -1369,7 +1374,7 @@ async function pgTimetable(m) {
       <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
     ${tt.custom.length ? `<h4>Your added classes</h4><table><thead><tr><th>Day and time</th><th>Subject</th><th>Venue</th><th></th></tr></thead><tbody>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</tbody></table>` : ''}</div>
   ${calendarCard(tt, ac)}
-  </details>`;
+  </details><div class="timetable-settings-dock"><button type="button" class="ghost" id="open-timetable-settings">Groups, classes and calendar settings</button></div>`;
   // Sanitize the complete template before it enters the live document.
   m.replaceChildren(DOMPurify.sanitize(timetableHtml, { RETURN_DOM_FRAGMENT: true }));
   const wallpaper = m.querySelector('#timetable-wallpaper');
@@ -1452,12 +1457,52 @@ async function pgTimetable(m) {
       setTimeout(() => URL.revokeObjectURL(link.href), 5000);
     }, 'image/png');
   };
-  const mg = document.getElementById('mg');
-  if (mg) mg.onchange = async () => { me = await q(sb.from('profiles').update({ subgroup: mg.value || null }).eq('id', me.id).select().single()); render(); };
-  m.querySelectorAll('.cg').forEach((s) => (s.onchange = async () => {
-    await q(sb.from('enrollments').update({ section: s.value || null }).eq('user_id', me.id).eq('course_code', s.dataset.code));
-    render();
+  const updateClashHighlights = (mainGroup, changedCode, changedValue) => {
+    const selected = new Map();
+    m.querySelectorAll('.cg').forEach((select) => selected.set(select.dataset.code, select.value));
+    if (changedCode) selected.set(changedCode, changedValue);
+    const selectedClasses = [...tt.classes.filter((item) => item.custom)];
+    for (const course of tt.courses) {
+      let group = selected.get(course.code);
+      if (group === 'none') continue;
+      if (!group) group = mainGroup && course.groups.includes(mainGroup) ? mainGroup : course.groups.length === 1 ? course.groups[0] : null;
+      if (group) for (const slot of groupSchedules[course.code]?.[group] || []) selectedClasses.push({ ...slot, course_code: course.code, custom: false });
+    }
+    const current = findClashes(selectedClasses);
+    m.querySelectorAll('.subject-groups tr[data-course-code]').forEach((row) => {
+      const code = row.dataset.courseCode, notices = current[code] || [];
+      row.classList.toggle('has-clash', notices.length > 0);
+      row.querySelector('.clash-notices').replaceChildren(...notices.map((clash) => {
+        const note = document.createElement('span');
+        note.className = 'clash-note';
+        note.textContent = `Schedule clash with ${clash.code} on ${DAYN[clash.day]}, ${clash.start}-${clash.end}`;
+        return note;
+      }));
+    });
+  };
+  const mg = m.querySelector('#mg');
+  if (mg) mg.onchange = async () => {
+    const nextGroup = mg.value || null;
+    updateClashHighlights(nextGroup);
+    mg.disabled = true;
+    try { me = await q(sb.from('profiles').update({ subgroup: nextGroup }).eq('id', me.id).select().single()); render(); }
+    catch (error) { await render(); flash(document.querySelector('#mg')?.closest('.card') || document.querySelector('.subject-groups')?.closest('.card'), error.message || 'Could not save your main group.'); }
+  };
+  m.querySelectorAll('.cg').forEach((select) => (select.onchange = async () => {
+    const nextValue = select.value;
+    updateClashHighlights(mg?.value || null, select.dataset.code, nextValue);
+    select.disabled = true;
+    try {
+      await q(sb.from('enrollments').update({ section: nextValue || null }).eq('user_id', me.id).eq('course_code', select.dataset.code));
+      render();
+    } catch (error) { await render(); flash(document.querySelector('.subject-groups')?.closest('.card'), error.message || 'Could not save this subject group.'); }
   }));
+  m.querySelector('#open-timetable-settings').onclick = () => {
+    const settings = m.querySelector('#timetable-settings');
+    settings.open = true;
+    settings.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    settings.querySelector('summary').focus({ preventScroll: true });
+  };
   document.getElementById('mc').onsubmit = async (e) => {
     e.preventDefault();
     const d = fd(e.target);

@@ -570,6 +570,21 @@ button,.btn,input,select,textarea{border-radius:7px}
 .unimap-service .btn{display:inline-flex;align-items:center;gap:7px}
 @media(max-width:760px){.unimap-services-grid{grid-template-columns:minmax(0,1fr)}}
 
+/* Keep timetable settings reachable without trapping the page in a nested scroller. */
+.content main:has(.timetable-settings-dock){padding-bottom:94px}
+.timetable-settings-dock{position:fixed;z-index:25;left:244px;right:274px;bottom:max(12px,env(safe-area-inset-bottom));display:flex;justify-content:flex-end;pointer-events:none}
+.timetable-settings-dock button{pointer-events:auto;max-width:100%;box-shadow:0 4px 18px #0004;background:var(--card);color:var(--brand);border-color:var(--brand);font-weight:600}
+.timetable-settings{scroll-margin-top:18px}
+.subject-groups tr.has-clash>td{background:color-mix(in srgb,var(--bad) 9%,var(--card))}
+.subject-groups tr.has-clash>td:first-child{box-shadow:inset 3px 0 var(--bad)}
+.clash-note{display:block;width:fit-content;max-width:100%;margin:5px 0 0;padding:3px 8px;border:1px solid color-mix(in srgb,var(--bad) 40%,var(--line));border-radius:6px;background:color-mix(in srgb,var(--bad) 13%,var(--card));color:var(--bad);font-weight:650;overflow-wrap:anywhere}
+@media (min-width:761px) and (max-width:1440px){.timetable-settings-dock{left:18px;right:18px}}
+@media(max-width:760px){
+  .content main:has(.timetable-settings-dock){padding-bottom:92px}
+  .timetable-settings-dock{left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));justify-content:stretch}
+  .timetable-settings-dock button{width:100%;min-height:48px}
+}
+
 /* Landscape tablets need a full-width workspace instead of desktop side rails. */
 @media (min-width:761px) and (max-width:1440px){
   .shell{flex-direction:column}
