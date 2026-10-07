@@ -11,11 +11,18 @@ const $app = document.getElementById('app');
 const setAppHtml = (markup) => $app.replaceChildren(DOMPurify.sanitize(markup, { RETURN_DOM_FRAGMENT: true }));
 const DAYN = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let manualClassSaveHandler = null;
+document.addEventListener('click', (event) => {
+  const button = event.target.closest?.('#manual-class-submit');
+  if (!button || !manualClassSaveHandler || !button.isConnected) return;
+  event.preventDefault();
+  manualClassSaveHandler(event);
+});
 // form -> object, empty strings become null (dates/numbers in Postgres reject '')
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.31';
+const APP_VERSION = '1.2.32';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1550,18 +1557,20 @@ async function pgTimetable(m) {
   manualClassForm.addEventListener('input', () => manualClassFeedback.replaceChildren());
   const saveManualClass = async (e) => {
     e.preventDefault();
-    if (manualClassSaving) return;
+    if (manualClassSaving || !manualClassForm.isConnected) return;
     const form = manualClassForm;
     const courseCode = manualSubject.value.trim();
     const title = manualTitle.value.trim();
     const start = form.elements.start_time.value;
     const end = form.elements.end_time.value;
+    manualClassFeedback.setAttribute('aria-live', 'assertive');
     if (!courseCode && !title) return flash(manualClassFeedback, 'Choose a subject or enter a class title.');
     if (!start || !end) return flash(manualClassFeedback, 'Enter both a start and end time.');
     if (end <= start) return flash(manualClassFeedback, 'End time must be after start time.');
     manualClassSaving = true;
     manualSubmit.disabled = true;
-    manualSubmit.textContent = 'Adding…';
+    manualSubmit.textContent = 'Saving…';
+    flash(manualClassFeedback, 'Saving class to your timetable…', true);
     const payload = {
       course_code: courseCode || null,
       title: title || null,
@@ -1587,7 +1596,7 @@ async function pgTimetable(m) {
       flash(document.getElementById('mcm') || manualClassFeedback, 'Class saved. Reload the page to refresh your timetable.', true);
     }
   };
-  manualSubmit.addEventListener('click', saveManualClass);
+  manualClassSaveHandler = saveManualClass;
   manualClassForm.addEventListener('submit', saveManualClass);
   m.querySelectorAll('[data-rmc]').forEach((b) => (b.onclick = async () => { await q(sb.from('my_classes').delete().eq('id', b.dataset.rmc)); render(); }));
   wireCalendarCard(m);
