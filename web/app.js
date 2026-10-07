@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.23';
+const APP_VERSION = '1.2.24';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1352,13 +1352,14 @@ async function pgTimetable(m) {
   <section class="timetable-settings" id="timetable-settings"><h3>Groups, classes and calendar settings</h3>
   ${tt.myCourseCount && !noData ? `<div class="card"><h3>Your main group</h3>
     <p class="mute">Pick the group you mostly attend with. Groups teaching the most of your subjects are listed first.</p>
-    ${tt.groupOptions.length ? `<div class="row"><div><select id="mg"><option value="">- choose your group -</option>${tt.groupOptions.map((o) => `<option value="${esc(o.group)}" ${o.group === tt.main ? 'selected' : ''}>${esc(groupLabel(o.group))} - teaches ${o.n} of your ${tt.myCourseCount} subjects</option>`).join('')}</select></div></div>`
+    ${tt.groupOptions.length ? `<div class="row"><div><select id="mg" data-saved-value="${esc(tt.main || '')}"><option value="">- choose your group -</option>${tt.groupOptions.map((o) => `<option value="${esc(o.group)}" ${o.group === tt.main ? 'selected' : ''}>${esc(groupLabel(o.group))} - teaches ${o.n} of your ${tt.myCourseCount} subjects</option>`).join('')}</select></div></div>`
       : '<p>None of your subjects appear in the loaded timetable. Add your classes manually below.</p>'}</div>
   <div class="card"><h3>Group for each subject</h3>
     <p class="mute">Took a subject with a different group? Change it here. Choose "Hide" for subjects without scheduled classes.</p>
     ${scheduleError ? '<p class="mute">Group schedules could not be loaded. You can still choose a group; reload to retry the schedule details.</p>' : ''}
+    <div class="group-change-actions" id="group-change-actions" hidden><span id="group-change-message" aria-live="polite">Preview only: clashes update as you choose groups. Save to confirm.</span><button type="button" id="save-group-changes" disabled>Save group changes</button><button type="button" class="ghost" id="discard-group-changes" disabled>Discard</button></div>
     <table class="subject-groups"><tr><th>Subject</th><th>Group</th></tr>${tt.courses.map((c) => `<tr data-course-code="${esc(c.code)}" class="${clashes[c.code]?.length ? 'has-clash' : ''}"><td><b>${esc(c.code)}</b> ${esc(c.name || '')}<div class="clash-notices" aria-live="polite">${(clashes[c.code] || []).map((clash) => `<span class="clash-note">Schedule clash with ${esc(clash.code)} on ${esc(DAYN[clash.day])}, ${esc(clash.start)}-${esc(clash.end)}</span>`).join('')}</div></td><td>
-      ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}" data-search aria-label="Group for ${esc(c.code)}">
+      ${c.groups.length ? `<select class="cg" data-code="${esc(c.code)}" data-saved-value="${esc(c.section || '')}" data-search aria-label="Group for ${esc(c.code)}">
         <option value="" ${!c.section ? 'selected' : ''}>${tt.main && c.groups.includes(tt.main) ? 'Same as main group — ' + esc(scheduleFor(c, tt.main)) : c.groups.length === 1 ? 'Only group: ' + esc(prettyGroup(c.groups[0])) + ' — ' + esc(scheduleFor(c, c.groups[0])) : '- choose -'}</option>
         ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(prettyGroup(g))} — ${esc(scheduleFor(c, g))}</option>`).join('')}
         <option value="none" ${c.section === 'none' ? 'selected' : ''}>Hide this subject</option></select>${c.chosen ? `<p class="group-schedule-note">${esc(scheduleFor(c, c.chosen))}</p>` : ''}`
@@ -1480,23 +1481,56 @@ async function pgTimetable(m) {
       }));
     });
   };
-  const mg = m.querySelector('#mg');
-  if (mg) mg.onchange = async () => {
-    const nextGroup = mg.value || null;
-    updateClashHighlights(nextGroup);
-    mg.disabled = true;
-    try { me = await q(sb.from('profiles').update({ subgroup: nextGroup }).eq('id', me.id).select().single()); render(); }
-    catch (error) { await render(); flash(document.querySelector('#mg')?.closest('.card') || document.querySelector('.subject-groups')?.closest('.card'), error.message || 'Could not save your main group.'); }
+  const groupActionBar = m.querySelector('#group-change-actions');
+  const saveGroupChanges = m.querySelector('#save-group-changes');
+  const discardGroupChanges = m.querySelector('#discard-group-changes');
+  const changedGroupSelects = () => [...m.querySelectorAll('.cg')].filter((select) => select.value !== select.dataset.savedValue);
+  const mainGroupChanged = () => mg && mg.value !== mg.dataset.savedValue;
+  const updateGroupDraftState = () => {
+    const changed = changedGroupSelects();
+    const mainChanged = mainGroupChanged();
+    changed.forEach((select) => select.closest('tr')?.classList.toggle('group-pending', select.value !== select.dataset.savedValue));
+    const count = changed.length + (mainChanged ? 1 : 0);
+    groupActionBar.hidden = !count;
+    saveGroupChanges.disabled = !count;
+    discardGroupChanges.disabled = !count;
+    m.querySelector('#group-change-message').textContent = count
+      ? `${count} unsaved group ${count === 1 ? 'change' : 'changes'} previewed. Check the highlighted clash notices, then save or discard.`
+      : 'Preview only: clashes update as you choose groups. Save to confirm.';
   };
+  const mg = m.querySelector('#mg');
+  if (mg) mg.onchange = () => { updateClashHighlights(mg.value || null); updateGroupDraftState(); };
   m.querySelectorAll('.cg').forEach((select) => (select.onchange = async () => {
-    const nextValue = select.value;
-    updateClashHighlights(mg?.value || null, select.dataset.code, nextValue);
-    select.disabled = true;
-    try {
-      await q(sb.from('enrollments').update({ section: nextValue || null }).eq('user_id', me.id).eq('course_code', select.dataset.code));
-      render();
-    } catch (error) { await render(); flash(document.querySelector('.subject-groups')?.closest('.card'), error.message || 'Could not save this subject group.'); }
+    updateClashHighlights(mg?.value || null, select.dataset.code, select.value);
+    updateGroupDraftState();
   }));
+  if (discardGroupChanges) discardGroupChanges.onclick = () => {
+    if (mg) mg.value = mg.dataset.savedValue;
+    m.querySelectorAll('.cg').forEach((select) => { select.value = select.dataset.savedValue; });
+    updateClashHighlights(mg?.value || null);
+    updateGroupDraftState();
+  };
+  if (saveGroupChanges) saveGroupChanges.onclick = async () => {
+    const changed = changedGroupSelects(), mainChanged = mainGroupChanged();
+    if (!changed.length && !mainChanged) return;
+    saveGroupChanges.disabled = discardGroupChanges.disabled = true;
+    saveGroupChanges.textContent = 'Saving…';
+    try {
+      const mainUpdate = mainChanged
+        ? q(sb.from('profiles').update({ subgroup: mg.value || null }).eq('id', me.id).select().single())
+        : Promise.resolve(null);
+      const subjectUpdates = changed.map((select) => q(sb.from('enrollments').update({ section: select.value || null }).eq('user_id', me.id).eq('course_code', select.dataset.code)));
+      const [updatedProfile] = await Promise.all([mainUpdate, ...subjectUpdates]);
+      if (updatedProfile) me = updatedProfile;
+      await render();
+      flash(document.querySelector('.subject-groups')?.closest('.card') || document.querySelector('#mg')?.closest('.card'), 'Group changes saved. Your timetable has been updated.', true);
+    } catch (error) {
+      await render();
+      flash(document.querySelector('.subject-groups')?.closest('.card') || document.querySelector('#mg')?.closest('.card'), error.message || 'Could not save all group changes. Your timetable has been refreshed; check the selected groups.');
+    } finally {
+      if (saveGroupChanges.isConnected) saveGroupChanges.textContent = 'Save group changes';
+    }
+  };
   document.getElementById('mc').onsubmit = async (e) => {
     e.preventDefault();
     const d = fd(e.target);

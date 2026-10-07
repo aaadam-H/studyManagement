@@ -576,6 +576,12 @@ button,.btn,input,select,textarea{border-radius:7px}
 .subject-groups tr.has-clash>td{background:color-mix(in srgb,var(--bad) 9%,var(--card))}
 .subject-groups tr.has-clash>td:first-child{box-shadow:inset 3px 0 var(--bad)}
 .clash-note{display:block;width:fit-content;max-width:100%;margin:5px 0 0;padding:3px 8px;border:1px solid color-mix(in srgb,var(--bad) 40%,var(--line));border-radius:6px;background:color-mix(in srgb,var(--bad) 13%,var(--card));color:var(--bad);font-weight:650;overflow-wrap:anywhere}
+.subject-groups tr.group-pending>td{background:color-mix(in srgb,var(--warn) 10%,var(--card))}
+.group-change-actions{position:sticky;top:60px;z-index:4;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0;padding:10px;border:1px solid var(--brand);border-radius:8px;background:var(--card);box-shadow:0 4px 16px #0003}
+.group-change-actions[hidden]{display:none}
+.group-change-actions>span{flex:1 1 240px;min-width:0;color:var(--mute);font-size:13px}
+.group-change-actions button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:760px){.group-change-actions{top:60px}.group-change-actions button{flex:1 1 130px}}
 
 /* Landscape tablets need a full-width workspace instead of desktop side rails. */
 @media (min-width:761px) and (max-width:1440px){
