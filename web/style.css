@@ -564,6 +564,8 @@ button,.btn,input,select,textarea{border-radius:7px}
 
 /* UniMAP service shortcuts */
 .unimap-services-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.unimap-email-hint{display:flex;flex-direction:column;gap:4px;margin:0 0 12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--brand) 45%,var(--line));border-left:4px solid var(--brand);border-radius:8px;background:color-mix(in srgb,var(--brand) 8%,var(--card))}
+.unimap-email-hint span{color:var(--mute)}
 .unimap-service{display:flex;min-width:0;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .unimap-service h3{margin:0}
 .unimap-service p{flex:1;margin:0;color:var(--mute)}

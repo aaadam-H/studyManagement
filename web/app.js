@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.27';
+const APP_VERSION = '1.2.28';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1050,10 +1050,11 @@ async function pgUnimapServices(m) {
     ['OSI', 'Open the UniMAP OSI student information system.', 'https://osi.unimap.edu.my/OSI_V2/login.jsp', 'Open OSI'],
     ['URLearn', 'Open the UniMAP online learning portal.', 'https://urlearn.unimap.edu.my/', 'Open URLearn'],
     ['UniParcel', 'Track parcels through the UniMAP parcel service.', 'https://uniparcel.unimap.edu.my/', 'Open UniParcel'],
-    ['Academic UniMAP', 'Visit the official UniMAP academic information site.', 'https://sites.google.com/unimap.edu.my/academicunimap/home', 'Open Academic UniMAP'],
-    ['Class timetable', 'Open UniMAP’s official class timetable page.', 'https://sites.google.com/unimap.edu.my/academicunimap/class-timetable', 'Open class timetable'],
+    ['Academic UniMAP', 'Visit the official UniMAP academic information site. Sign in with your UniMAP account (@unimap.edu.my).', 'https://sites.google.com/unimap.edu.my/academicunimap/home', 'Open Academic UniMAP'],
+    ['Class timetable', 'Open UniMAP’s official class timetable page. Sign in with your UniMAP account (@unimap.edu.my).', 'https://sites.google.com/unimap.edu.my/academicunimap/class-timetable', 'Open class timetable'],
   ];
   m.innerHTML = `<h2>UniMAP services</h2><p class="sub">Quick links to official UniMAP student services.</p>
+  <div class="unimap-email-hint" role="note"><b>UniMAP sign-in required</b><span>Academic UniMAP and Class timetable will ask you to sign in. Use your UniMAP email account ending in <strong>@unimap.edu.my</strong>; a personal Gmail account may not have access.</span></div>
   <div class="unimap-services-grid">${services.map(([title, description, url, action]) => `<article class="unimap-service"><h3>${esc(title)}</h3><p>${esc(description)}</p><a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">${esc(action)} <span aria-hidden="true">↗</span></a></article>`).join('')}</div>
   <p class="mute">These links open the official UniMAP websites in a new tab.</p>`;
 }
