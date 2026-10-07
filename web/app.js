@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.30';
+const APP_VERSION = '1.2.31';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1374,7 +1374,7 @@ async function pgTimetable(m) {
     <div class="row"><div><label>Day</label><select name="day" required>${DAYN.slice(1).map((d, i) => `<option value="${i + 1}">${d}</option>`).join('')}</select></div>
       <div><label>Start</label><input type="time" name="start_time" required></div><div><label>End</label><input type="time" name="end_time" required></div></div>
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
-      <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button type="submit">Add class</button></div></form>
+      <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button type="button" id="manual-class-submit">Add class</button></div></form>
     ${tt.custom.length ? `<h4>Your added classes</h4><table><thead><tr><th>Day and time</th><th>Subject</th><th>Venue</th><th></th></tr></thead><tbody>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</tbody></table>` : ''}</div>
   ${calendarCard(tt, ac)}
   </section>`;
@@ -1537,7 +1537,9 @@ async function pgTimetable(m) {
   const manualClassFeedback = m.querySelector('#mcm');
   const manualSubject = manualClassForm.elements.course_code;
   const manualTitle = manualClassForm.elements.title;
+  const manualSubmit = m.querySelector('#manual-class-submit');
   let autoTitle = '';
+  let manualClassSaving = false;
   manualSubject.addEventListener('change', () => {
     if (!manualTitle.value.trim() || manualTitle.value === autoTitle) {
       autoTitle = manualSubject.selectedOptions[0]?.dataset.title || '';
@@ -1546,9 +1548,10 @@ async function pgTimetable(m) {
     manualClassFeedback.replaceChildren();
   });
   manualClassForm.addEventListener('input', () => manualClassFeedback.replaceChildren());
-  manualClassForm.onsubmit = async (e) => {
+  const saveManualClass = async (e) => {
     e.preventDefault();
-    const form = e.currentTarget;
+    if (manualClassSaving) return;
+    const form = manualClassForm;
     const courseCode = manualSubject.value.trim();
     const title = manualTitle.value.trim();
     const start = form.elements.start_time.value;
@@ -1556,9 +1559,9 @@ async function pgTimetable(m) {
     if (!courseCode && !title) return flash(manualClassFeedback, 'Choose a subject or enter a class title.');
     if (!start || !end) return flash(manualClassFeedback, 'Enter both a start and end time.');
     if (end <= start) return flash(manualClassFeedback, 'End time must be after start time.');
-    const submit = form.querySelector('button[type="submit"], button:not([type])');
-    submit.disabled = true;
-    submit.textContent = 'Adding…';
+    manualClassSaving = true;
+    manualSubmit.disabled = true;
+    manualSubmit.textContent = 'Adding…';
     const payload = {
       course_code: courseCode || null,
       title: title || null,
@@ -1572,8 +1575,9 @@ async function pgTimetable(m) {
       await q(sb.from('my_classes').insert(payload).select('id').single());
     } catch (er) {
       flash(document.getElementById('mcm') || manualClassFeedback, er.message || 'Could not add this class. Please try again.');
-      submit.disabled = false;
-      submit.textContent = 'Add class';
+      manualClassSaving = false;
+      manualSubmit.disabled = false;
+      manualSubmit.textContent = 'Add class';
       return;
     }
     try {
@@ -1583,6 +1587,8 @@ async function pgTimetable(m) {
       flash(document.getElementById('mcm') || manualClassFeedback, 'Class saved. Reload the page to refresh your timetable.', true);
     }
   };
+  manualSubmit.addEventListener('click', saveManualClass);
+  manualClassForm.addEventListener('submit', saveManualClass);
   m.querySelectorAll('[data-rmc]').forEach((b) => (b.onclick = async () => { await q(sb.from('my_classes').delete().eq('id', b.dataset.rmc)); render(); }));
   wireCalendarCard(m);
 }
