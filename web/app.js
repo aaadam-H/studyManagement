@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.20';
+const APP_VERSION = '1.2.21';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -755,9 +755,16 @@ const classMetaHtml = (parts) => parts.filter(Boolean).map((part) => esc(part).r
 const clsHtml = (c) => `<div class="cls k-${kindKey(c.kind)}${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${classMetaHtml([c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section)])}</span></div></div>`;
 async function pgDashboard(m) {
   const [tt, asg, bul, ac] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*').order('due_date')), getBulletin(), getAcademic()]);
-  const dow = new Date().getDay() || 7, t = localISO();
+  const now = new Date();
+  const dow = now.getDay() || 7, t = localISO(now);
   const today = ac.day(t);
   const todays = today.classes ? tt.classes.filter((c) => c.day === dow) : [];
+  const tomorrowDate = new Date(now);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowIso = localISO(tomorrowDate);
+  const tomorrow = ac.day(tomorrowIso);
+  const tomorrowDow = tomorrowDate.getDay() || 7;
+  const tomorrows = tomorrow.classes ? tt.classes.filter((c) => c.day === tomorrowDow) : [];
   const nextHol = ac.events.find((e) => e.end_date >= t && e.no_class);
   const nextBreak = longHolidays(ac.periods, ac.events).find((b) => b.end_date >= t && b.leave_dates.every((d) => d >= t));
   const pending = asg.filter((a) => !a.done);
@@ -777,6 +784,8 @@ async function pgDashboard(m) {
   ${nextExams.length ? `<div class="card exams-card"><h3>Upcoming exams</h3>${nextExams.map((e) => `<div class="post"><span class="tag exam">${esc(countdown(e.date))}</span> <b>${esc(e.code)}</b> ${esc(e.name || '')}<br><span class="mute">${esc(fmtExamDate(e.date))}${e.time ? ', ' + esc(fmtTime(e.time)) : ''}${e.venue ? ' · ' + esc(e.venue) : ''}</span></div>`).join('')}<p><a href="#/exams">All exams</a></p></div>` : ''}
   <div class="grid dashboard-stats"><div class="card stat"><b>${pending.length}</b><span>Pending assignments</span></div><div class="card stat"><b style="color:var(--bad)">${overdue.length}</b><span>Overdue</span></div><div class="card stat"><b>${todays.length}</b><span>Classes today</span></div></div>
   <div class="card"><h3>Today's classes</h3>${todays.length ? todays.map(clsHtml).join('') : `<p class="mute">No classes today${today.st && today.st.kind !== 'lecture' ? ` (${esc(today.st.label.toLowerCase())})` : ''}.</p>`}
+  </div>
+  <div class="card"><h3>Tomorrow's classes <span class="mute">· ${esc(tomorrowDate.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }))}</span></h3>${tomorrows.length ? tomorrows.map(clsHtml).join('') : `<p class="mute">No classes tomorrow${tomorrow.st && tomorrow.st.kind !== 'lecture' ? ` (${esc(tomorrow.st.label.toLowerCase())})` : ''}.</p>`}
   </div>
   <div class="card holiday-next"><div class="holiday-head"><h3>${nextHol && nextHol.start_date < t ? 'Holiday now' : 'Next upcoming holiday'}</h3>${nextHol ? `<span class="tag">${nextHol.start_date < t ? 'Happening now' : esc(countdown(nextHol.start_date))}</span>` : ''}</div>
     ${nextHol ? `<h4>${esc(nextHol.title)}</h4><p>${esc(fmtDate(nextHol.start_date))}${nextHol.end_date !== nextHol.start_date ? ' – ' + esc(fmtDate(nextHol.end_date)) : ''}</p>` : '<p class="mute">No upcoming holidays in the uploaded calendar.</p>'}
