@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.29';
+const APP_VERSION = '1.2.30';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1367,13 +1367,14 @@ async function pgTimetable(m) {
       : '<span class="mute">Not in the loaded timetable (it may be for a different semester). Add it manually below.</span>'}</td></tr>`).join('')}</table></div>` : ''}
   <div class="card"><h3>Add a class manually</h3>
     <p class="mute">For classes that are missing or different from the university timetable.</p>
+    <div id="mcm" class="manual-class-feedback" role="alert" aria-live="assertive"></div>
     <form id="mc"><div class="row">
       <div><label>Subject</label><select name="course_code">${courseOpts}<option value="">Other (type a title)</option></select></div>
       <div><label>Class title</label><input name="title" maxlength="200" placeholder="Choose a subject or enter a class title"><small class="mute">Selecting a subject fills its name. Edit it to use a custom title.</small></div></div>
     <div class="row"><div><label>Day</label><select name="day" required>${DAYN.slice(1).map((d, i) => `<option value="${i + 1}">${d}</option>`).join('')}</select></div>
       <div><label>Start</label><input type="time" name="start_time" required></div><div><label>End</label><input type="time" name="end_time" required></div></div>
     <div class="row"><div><label>Type <span class="mute">(optional)</span></label><select name="kind"><option value="">-</option><option>LECTURE</option><option>TUTORIAL</option><option>LAB</option></select></div>
-      <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
+      <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button type="submit">Add class</button></div></form>
     ${tt.custom.length ? `<h4>Your added classes</h4><table><thead><tr><th>Day and time</th><th>Subject</th><th>Venue</th><th></th></tr></thead><tbody>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</tbody></table>` : ''}</div>
   ${calendarCard(tt, ac)}
   </section>`;
@@ -1568,13 +1569,18 @@ async function pgTimetable(m) {
       venue: form.elements.venue.value.trim() || null,
     };
     try {
-      await q(sb.from('my_classes').insert(payload));
-      await render();
-      flash(document.getElementById('mcm'), 'Class added to your timetable.', true);
+      await q(sb.from('my_classes').insert(payload).select('id').single());
     } catch (er) {
-      flash(manualClassFeedback, er.message || 'Could not add this class. Please try again.');
+      flash(document.getElementById('mcm') || manualClassFeedback, er.message || 'Could not add this class. Please try again.');
       submit.disabled = false;
       submit.textContent = 'Add class';
+      return;
+    }
+    try {
+      await render();
+      flash(document.getElementById('mcm'), 'Class added to your timetable.', true);
+    } catch {
+      flash(document.getElementById('mcm') || manualClassFeedback, 'Class saved. Reload the page to refresh your timetable.', true);
     }
   };
   m.querySelectorAll('[data-rmc]').forEach((b) => (b.onclick = async () => { await q(sb.from('my_classes').delete().eq('id', b.dataset.rmc)); render(); }));
