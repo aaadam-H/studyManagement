@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.22';
+const APP_VERSION = '1.2.23';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1349,7 +1349,7 @@ async function pgTimetable(m) {
       <p class="mute">Subject names, days and class times are always shown.</p>
     </fieldset></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Preview of your timetable wallpaper"></canvas><dialog class="wallpaper-zoom-dialog" id="wallpaper-preview-dialog" aria-labelledby="wallpaper-preview-title"><div class="wallpaper-zoom-head"><h3 id="wallpaper-preview-title">Wallpaper preview</h3><button type="button" class="ghost" id="wallpaper-zoom-close" aria-label="Close enlarged preview">Close</button></div><canvas id="timetable-wallpaper-zoom" width="1080" height="1920" aria-label="Enlarged live preview of your timetable wallpaper"></canvas></dialog><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><button type="button" class="ghost" id="wallpaper-zoom-open" aria-haspopup="dialog">Zoom preview</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? 'Preparing preview…' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   <p class="mute timetable-source">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>
-  <details class="timetable-settings" id="timetable-settings"><summary>Groups, classes and calendar settings</summary>
+  <section class="timetable-settings" id="timetable-settings"><h3>Groups, classes and calendar settings</h3>
   ${tt.myCourseCount && !noData ? `<div class="card"><h3>Your main group</h3>
     <p class="mute">Pick the group you mostly attend with. Groups teaching the most of your subjects are listed first.</p>
     ${tt.groupOptions.length ? `<div class="row"><div><select id="mg"><option value="">- choose your group -</option>${tt.groupOptions.map((o) => `<option value="${esc(o.group)}" ${o.group === tt.main ? 'selected' : ''}>${esc(groupLabel(o.group))} - teaches ${o.n} of your ${tt.myCourseCount} subjects</option>`).join('')}</select></div></div>`
@@ -1374,7 +1374,7 @@ async function pgTimetable(m) {
       <div><label>Venue <span class="mute">(optional)</span></label><input name="venue" maxlength="200"></div><button>Add class</button></div></form><div id="mcm"></div>
     ${tt.custom.length ? `<h4>Your added classes</h4><table><thead><tr><th>Day and time</th><th>Subject</th><th>Venue</th><th></th></tr></thead><tbody>${tt.custom.map((c) => `<tr><td>${DAYN[c.day]} ${esc(c.start_time)}-${esc(c.end_time)}</td><td>${esc(c.course_code || '')} ${esc(c.title || '')}</td><td>${esc(c.venue || '')}</td><td><button class="sm ghost" data-rmc="${esc(c.id)}">Remove</button></td></tr>`).join('')}</tbody></table>` : ''}</div>
   ${calendarCard(tt, ac)}
-  </details><div class="timetable-settings-dock"><button type="button" class="ghost" id="open-timetable-settings">Groups, classes and calendar settings</button></div>`;
+  </section>`;
   // Sanitize the complete template before it enters the live document.
   m.replaceChildren(DOMPurify.sanitize(timetableHtml, { RETURN_DOM_FRAGMENT: true }));
   const wallpaper = m.querySelector('#timetable-wallpaper');
@@ -1497,12 +1497,6 @@ async function pgTimetable(m) {
       render();
     } catch (error) { await render(); flash(document.querySelector('.subject-groups')?.closest('.card'), error.message || 'Could not save this subject group.'); }
   }));
-  m.querySelector('#open-timetable-settings').onclick = () => {
-    const settings = m.querySelector('#timetable-settings');
-    settings.open = true;
-    settings.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    settings.querySelector('summary').focus({ preventScroll: true });
-  };
   document.getElementById('mc').onsubmit = async (e) => {
     e.preventDefault();
     const d = fd(e.target);
