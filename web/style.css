@@ -573,6 +573,8 @@ button,.btn,input,select,textarea{border-radius:7px}
 /* Keep the timetable settings expanded inline after the weekly timetable. */
 .timetable-settings{border-top:1px solid var(--line);padding-top:14px;margin:18px 0}
 .timetable-settings>h3{color:var(--brand);margin:0 0 12px}
+#timetable-group-feedback:empty{display:none}
+#timetable-group-feedback{margin:8px 0}
 .subject-groups tr.has-clash>td{background:color-mix(in srgb,var(--bad) 9%,var(--card))}
 .subject-groups tr.has-clash>td:first-child{box-shadow:inset 3px 0 var(--bad)}
 .clash-note{display:block;width:fit-content;max-width:100%;margin:5px 0 0;padding:3px 8px;border:1px solid color-mix(in srgb,var(--bad) 40%,var(--line));border-radius:6px;background:color-mix(in srgb,var(--bad) 13%,var(--card));color:var(--bad);font-weight:650;overflow-wrap:anywhere}

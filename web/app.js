@@ -15,7 +15,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.24';
+const APP_VERSION = '1.2.25';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1349,7 +1349,7 @@ async function pgTimetable(m) {
       <p class="mute">Subject names, days and class times are always shown.</p>
     </fieldset></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Preview of your timetable wallpaper"></canvas><dialog class="wallpaper-zoom-dialog" id="wallpaper-preview-dialog" aria-labelledby="wallpaper-preview-title"><div class="wallpaper-zoom-head"><h3 id="wallpaper-preview-title">Wallpaper preview</h3><button type="button" class="ghost" id="wallpaper-zoom-close" aria-label="Close enlarged preview">Close</button></div><canvas id="timetable-wallpaper-zoom" width="1080" height="1920" aria-label="Enlarged live preview of your timetable wallpaper"></canvas></dialog><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><button type="button" class="ghost" id="wallpaper-zoom-open" aria-haspopup="dialog">Zoom preview</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? 'Preparing preview…' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   <p class="mute timetable-source">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>
-  <section class="timetable-settings" id="timetable-settings"><h3>Groups, classes and calendar settings</h3>
+  <section class="timetable-settings" id="timetable-settings"><h3>Groups, classes and calendar settings</h3><div id="timetable-group-feedback" aria-live="polite"></div>
   ${tt.myCourseCount && !noData ? `<div class="card"><h3>Your main group</h3>
     <p class="mute">Pick the group you mostly attend with. Groups teaching the most of your subjects are listed first.</p>
     ${tt.groupOptions.length ? `<div class="row"><div><select id="mg" data-saved-value="${esc(tt.main || '')}"><option value="">- choose your group -</option>${tt.groupOptions.map((o) => `<option value="${esc(o.group)}" ${o.group === tt.main ? 'selected' : ''}>${esc(groupLabel(o.group))} - teaches ${o.n} of your ${tt.myCourseCount} subjects</option>`).join('')}</select></div></div>`
@@ -1523,10 +1523,10 @@ async function pgTimetable(m) {
       const [updatedProfile] = await Promise.all([mainUpdate, ...subjectUpdates]);
       if (updatedProfile) me = updatedProfile;
       await render();
-      flash(document.querySelector('.subject-groups')?.closest('.card') || document.querySelector('#mg')?.closest('.card'), 'Group changes saved. Your timetable has been updated.', true);
+      flash(document.querySelector('#timetable-group-feedback'), 'Group changes saved. Your timetable has been updated.', true);
     } catch (error) {
       await render();
-      flash(document.querySelector('.subject-groups')?.closest('.card') || document.querySelector('#mg')?.closest('.card'), error.message || 'Could not save all group changes. Your timetable has been refreshed; check the selected groups.');
+      flash(document.querySelector('#timetable-group-feedback'), error.message || 'Could not save all group changes. Your timetable has been refreshed; check the selected groups.');
     } finally {
       if (saveGroupChanges.isConnected) saveGroupChanges.textContent = 'Save group changes';
     }
