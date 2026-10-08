@@ -12,9 +12,11 @@ create table if not exists public.profiles (
   year int, semester text,
   role text not null default 'student' check (role in ('student','admin')),
   must_change_password boolean not null default false,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  last_access_at timestamptz
 );
 alter table public.profiles add column if not exists must_change_password boolean not null default false;
+alter table public.profiles add column if not exists last_access_at timestamptz;
 create table if not exists public.settings (key text primary key, value text);
 create table if not exists public.password_reset_rate_limits (
   lookup_hash text primary key check (lookup_hash ~ '^[0-9a-f]{64}$'),
@@ -267,7 +269,7 @@ create policy profiles_read on public.profiles for select to authenticated using
 drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
 revoke insert, update, delete on public.profiles from anon, authenticated;
-grant update (name, email, phone, program, faculty, year, semester, subgroup, onboarded_at, muted_subjects) on public.profiles to authenticated;
+grant update (name, email, phone, program, faculty, year, semester, subgroup, onboarded_at, muted_subjects, last_access_at) on public.profiles to authenticated;
 
 -- settings, courses, classes: everyone logged in can read; only admins write
 drop policy if exists settings_read on public.settings;
@@ -394,6 +396,18 @@ begin
   end loop;
 end $$;
 
+create or replace function public.record_last_access() returns timestamptz
+language plpgsql security invoker set search_path = '' as $$
+declare
+  target_id uuid := auth.uid();
+  recorded_at timestamptz := pg_catalog.clock_timestamp();
+begin
+  if target_id is null then raise exception 'sign in required'; end if;
+  update public.profiles set last_access_at = recorded_at where id = target_id;
+  if not found then raise exception 'profile not found'; end if;
+  return recorded_at;
+end $$;
+
 -- Admin: load the class list. The first batch uses replace=true to clear the old list; later batches append.
 -- Course names found in the timetable fill in names that are still missing.
 drop function if exists public.admin_replace_classes(jsonb);
@@ -430,6 +444,14 @@ begin
   return query select p.id, p.student_id, p.name, p.email, p.phone, p.program, p.role, p.created_at,
     (select count(*) from enrollments e where e.user_id = p.id) from profiles p order by p.created_at desc;
 end $$;
+
+create or replace function public.admin_users_with_access()
+returns table (id uuid, student_id text, name text, email text, phone text, program text, role text, created_at timestamptz, courses bigint, last_access_at timestamptz)
+language sql stable security invoker set search_path = '' as $$
+  select u.id, u.student_id, u.name, u.email, u.phone, u.program, u.role, u.created_at, u.courses, p.last_access_at
+  from public.admin_users() as u
+  join public.profiles as p on p.id = u.id
+$$;
 
 create or replace function public.admin_set_role(target uuid, new_role text) returns void
 language plpgsql security definer set search_path = public as $$
@@ -775,7 +797,7 @@ $$;
 
 revoke execute on all functions in schema public from anon, authenticated, public;
 grant execute on function public.is_admin(), public.is_enrolled(text), public.save_courses(jsonb, boolean),
-  public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_set_role(uuid, text),
+  public.admin_replace_classes(jsonb, boolean), public.class_sections(text[]), public.admin_users(), public.admin_users_with_access(), public.record_last_access(), public.admin_set_role(uuid, text),
   public.admin_reset_password(uuid, text), public.complete_forced_password_change(text), public.admin_delete_user(uuid),
   public.admin_update_profile(uuid, jsonb), public.my_timetable(uuid), public.my_calendar_ics(),
   public.reset_calendar_token(), public.mark_bulletin_seen(), public.teaching_window(), public.admin_save_academic_calendar(jsonb, jsonb),

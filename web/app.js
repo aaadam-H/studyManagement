@@ -28,7 +28,7 @@ wireManualClassButton(document, () => manualClassSaveHandler, (error) => {
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.34';
+const APP_VERSION = '1.2.35';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -352,15 +352,15 @@ function forcedPasswordChangeScreen() {
 /* ---------------- shell ---------------- */
 const ROUTES = {
   '': ['Dashboard', pgDashboard], timetable: ['Timetable', pgTimetable], exams: ['Exams', pgExams], services: ['UniMAP services', pgUnimapServices], bulletin: ['Bulletin', pgBulletin], courses: ['My Courses', pgCourses],
-  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
+  assignments: ['Assignments', pgAssignments], calendar: ['Calendar', pgCalendar], academic: ['Academic Calendar', pgAcademic], holidays: ['Holidays', pgHolidays], grades: ['Grades', pgGrades], notes: ['Notes', pgNotes], profile: ['Profile', pgProfile], feedback: ['Feedback', pgFeedback], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
 };
 const PUBLIC_ROUTES = {
-  '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], services: ['UniMAP services', pgUnimapServices], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
+  '': ['Home', pgPublicHome], timetable: ['Timetable', pgPublicTimetable], services: ['UniMAP services', pgUnimapServices], bulletin: ['Bulletin', pgPublicBulletin], academic: ['Academic Calendar', pgAcademic], holidays: ['Holidays', pgHolidays], changelog: ['Changelog', pgPublicChangelog], help: ['Help', pgHelp],
 };
 const NAV_GROUPS = [
   ['Overview', ['']],
   ['Academics', ['timetable', 'exams', 'courses', 'grades', 'services']],
-  ['Planning', ['assignments', 'calendar', 'academic', 'notes']],
+  ['Planning', ['assignments', 'calendar', 'academic', 'holidays', 'notes']],
   ['Community', ['bulletin', 'feedback', 'changelog']],
   ['Account & Help', ['profile', 'help']],
 ];
@@ -528,6 +528,10 @@ function mountUniversalSearch(main, routes) {
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
   me = session ? await q(sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle()) : null;
+  if (me) {
+    try { me.last_access_at = await q(sb.rpc('record_last_access')); }
+    catch (error) { console.warn('Could not record last access time:', error); }
+  }
   const maintenance = await getMaintenance();
   armMaintenanceTimer(maintenance);
   maintenanceGate = maintenanceIsActive(maintenance) && me?.role !== 'admin';
@@ -802,8 +806,8 @@ async function pgDashboard(m) {
   </div>
   <div class="card holiday-next"><div class="holiday-head"><h3>${nextHol && nextHol.start_date < t ? 'Holiday now' : 'Next upcoming holiday'}</h3>${nextHol ? `<span class="tag">${nextHol.start_date < t ? 'Happening now' : esc(countdown(nextHol.start_date))}</span>` : ''}</div>
     ${nextHol ? `<h4>${esc(nextHol.title)}</h4><p>${esc(fmtDate(nextHol.start_date))}${nextHol.end_date !== nextHol.start_date ? ' – ' + esc(fmtDate(nextHol.end_date)) : ''}</p>` : '<p class="mute">No upcoming holidays in the uploaded calendar.</p>'}
-    <a href="#/academic">See holidays and academic calendar</a></div>
-  ${nextBreak ? `<div class="card"><h3>${nextBreak.leave_dates.length ? 'Possible long holiday' : 'Next long holiday'}</h3>${holidayHtml(nextBreak)}<p><a href="#/academic">See all long holidays</a></p></div>` : ''}
+    <a href="#/holidays">See all holidays</a></div>
+  ${nextBreak ? `<div class="card"><h3>${nextBreak.leave_dates.length ? 'Possible long holiday' : 'Next long holiday'}</h3>${holidayHtml(nextBreak)}<p><a href="#/holidays">See all long holidays</a></p></div>` : ''}
   <div class="card"><h3>Upcoming deadlines from the bulletin</h3>${upcoming.length ? upcoming.map((p) => `<div class="post"><b>${esc(p.due_date)}</b> <span class="tag ${esc(p.kind)}">${esc(p.course_code || 'General')}</span> ${esc(p.title)}</div>`).join('') : '<p class="mute">Nothing due. <a href="#/bulletin">Open bulletin</a></p>'}</div>
   <div class="card"><h3>My pending assignments</h3>${pending.slice(0, 6).map((a) => `<div class="post"><b>${esc(a.title)}</b> <span class="mute">${esc(a.course_code || '')} ${esc(a.due_date || '')}</span></div>`).join('') || '<p class="mute">All clear.</p>'}</div>
 `;
@@ -1003,7 +1007,8 @@ async function pgWelcome(m) {
       <tr><td><b>My Courses</b></td><td>Your registered subjects. Upload a new slip after add/drop.</td></tr>
       <tr><td><b>Assignments</b></td><td>Your own to-do list with due dates (private).</td></tr>
       <tr><td><b>Calendar</b></td><td>Month view of classes, deadlines, holidays and breaks.</td></tr>
-      <tr><td><b>Academic Calendar</b></td><td>Semester dates, lecture weeks, exams and public holidays.</td></tr>
+      <tr><td><b>Academic Calendar</b></td><td>Semester dates, lecture weeks, and the holidays and events from the uploaded university calendar.</td></tr>
+      <tr><td><b>Holidays</b></td><td>Uploaded holidays and possible long breaks planned around weekends.</td></tr>
       <tr><td><b>Grades / Notes</b></td><td>Your marks with weighted totals, and private notes.</td></tr>
       <tr><td><b>Profile</b></td><td>Your details and password.</td></tr>
       <tr><td><b>Feedback</b></td><td>Send suggestions, report a problem or a bulletin post. Admin replies show up there.</td></tr>
@@ -1087,7 +1092,7 @@ function pgHelp(m) {
     ['Can I put StudyHub on my phone like an app?', `Yes. ${INSTALL_STEPS} StudyHub then gets its own icon and opens full screen.`],
     ['Where do I see my exam dates?', 'Upload your <b>examination slip</b> PDF on the <b>Exams</b> page. Your exams then show there with a countdown, on the Dashboard and in the Calendar. Subjects without a date on the slip are listed too: check the final exam schedule for those.'],
     ['I forgot my password', 'On the sign-in page, choose <b>Forgot password?</b> and contact the StudyHub admin on WhatsApp. The admin can reset your password.'],
-    ['What do "Lecture week" and the holidays come from?', 'The university\'s academic calendar, uploaded by the admin. See <b>Academic Calendar</b>.'],
+    ['What do "Lecture week" and the holidays come from?', 'The university\'s academic calendar, uploaded by the admin. Semester dates and the source holiday list are on <b>Academic Calendar</b>; long-holiday estimates are on <b>Holidays</b>.'],
   ];
   m.innerHTML = `<h2>Help</h2><p class="sub">How to use StudyHub.</p>
   <div class="card"><h3>What StudyHub does</h3><div class="feat">${FEATURES.map(([t, d]) => `<div><b>${t}</b><p class="mute">${d}</p></div>`).join('')}</div>
@@ -2080,6 +2085,10 @@ function longHolidayCard(ac, today) {
     <p id="holiday-empty" class="mute" ${breaks.some((b) => b.end_date >= today && b.leave_dates.every((d) => d >= today)) ? 'hidden' : ''}>No upcoming long holidays found in the uploaded calendar.</p>
   </div>`;
 }
+function uploadedEventsCard(events, today) {
+  return events.length ? `<div class="card"><h3>Holidays and events from the uploaded calendar</h3><table><tr><th>Date</th><th>What</th><th></th></tr>
+    ${events.map((e) => `<tr class="${e.end_date < today ? 'past' : ''}"><td>${esc(fmtDate(e.start_date))}${e.end_date !== e.start_date ? ' - ' + esc(fmtDate(e.end_date)) : ''}</td><td>${esc(e.title)}</td><td>${e.no_class ? '<span class="tag urgent">no classes</span>' : ''}</td></tr>`).join('')}</table></div>` : '<div class="card mute">No holidays or events have been uploaded yet.</div>';
+}
 
 /* ---------------- academic calendar page ---------------- */
 async function pgAcademic(m) {
@@ -2091,15 +2100,23 @@ async function pgAcademic(m) {
   m.innerHTML = `<h2>Academic Calendar</h2><p class="sub">Semester dates, breaks and public holidays from the university's academic calendar.</p>
   ${!ac.periods.length && !ac.events.length ? `<div class="card">The academic calendar has not been uploaded yet. ${isAdmin() ? '<a href="#/admin">Upload it in Admin</a>.' : 'Please check back after the admin uploads it.'}</div>` : ''}
   ${st ? `<div class="card now"><b>Now:</b> ${esc(statusText(st))}</div>` : ''}
-  ${longHolidayCard(ac, t)}
+  <div class="card"><h3>Holidays and long breaks</h3><p>Browse upcoming holidays and possible long breaks separately from semester dates.</p><a class="btn" href="#/holidays">Open Holidays</a></div>
   ${sems.map((sem) => `<div class="card"><h3>${esc(sem)}</h3><table><tr><th>Period</th><th>From</th><th>To</th><th>Weeks</th></tr>
     ${ac.periods.filter((p) => p.semester === sem).map((p) => `<tr class="${p.start_date <= t && t <= p.end_date ? 'cur' : p.end_date < t ? 'past' : ''}"><td>${esc(p.label)}</td><td>${esc(fmtDate(p.start_date))}</td><td>${esc(fmtDate(p.end_date))}</td><td>${weeksOf(p)}</td></tr>`).join('')}</table></div>`).join('')}
-  ${ac.events.length ? `<div class="card"><h3>Holidays and events</h3><table><tr><th>Date</th><th>What</th><th></th></tr>
-    ${ac.events.map((e) => `<tr class="${e.end_date < t ? 'past' : ''}"><td>${esc(fmtDate(e.start_date))}${e.end_date !== e.start_date ? ' - ' + esc(fmtDate(e.end_date)) : ''}</td><td>${esc(e.title)}</td><td>${e.no_class ? '<span class="tag urgent">no classes</span>' : ''}</td></tr>`).join('')}</table></div>` : ''}
+  ${ac.events.length ? uploadedEventsCard(ac.events, t) : ''}
   <p class="mute">The university's calendar is subject to change.</p>`;
+}
+async function pgHolidays(m) {
+  const ac = await getAcademic();
+  const today = localISO();
+  m.innerHTML = `<h2>Holidays</h2><p class="sub">Uploaded holidays and possible long breaks, in one place. Check your timetable, exams and deadlines before making plans.</p>
+    ${!ac.periods.length && !ac.events.length ? `<div class="card">No academic calendar has been uploaded yet. ${isAdmin() ? '<a href="#/admin-settings">Upload it in System settings</a>.' : 'Check back after the admin uploads it.'}</div>` : ''}
+    ${longHolidayCard(ac, today)}
+    ${uploadedEventsCard(ac.events, today)}
+    <p class="mute">Possible long holidays are estimates based on weekends, no-class holidays and academic breaks. The university's calendar is subject to change.</p>`;
   m.querySelector('#holiday-past').onchange = (e) => {
     const rows = [...m.querySelectorAll('[data-holiday-end]')];
-    rows.forEach((r) => { r.hidden = !e.target.checked && (r.dataset.holidayEnd < t || r.dataset.holidayExpired === 'true'); });
+    rows.forEach((r) => { r.hidden = !e.target.checked && (r.dataset.holidayEnd < today || r.dataset.holidayExpired === 'true'); });
     m.querySelector('#holiday-empty').hidden = rows.some((r) => !r.hidden);
     m.querySelector('#holiday-empty').textContent = e.target.checked ? 'No long holidays found in the uploaded calendar.' : 'No upcoming long holidays found in the uploaded calendar.';
   };
@@ -2108,6 +2125,7 @@ async function pgAcademic(m) {
 /* ---------------- profile ---------------- */
 async function pgProfile(m) {
   m.innerHTML = `<h2>Profile</h2><p class="sub">Student ID: <b>${esc(me.student_id)}</b></p>
+  <div class="card"><h3>Account activity</h3><p class="mute">Last StudyHub access</p><b>${esc(formatLastAccess(me.last_access_at))}</b></div>
   <form class="card" id="f">${profileFields(me, 'email')}
   <div id="m1"></div><p><button>Save</button></p></form>
   <form class="card" id="pw"><h3>Change password</h3><label>New password (min 8)</label><input type="password" name="next" minlength="8" required autocomplete="new-password"><div id="m2"></div><p><button>Change</button></p></form>`;
@@ -2121,6 +2139,10 @@ async function pgProfile(m) {
     const { error } = await sb.auth.updateUser({ password: fd(e.target).next });
     if (error) flash(document.getElementById('m2'), error.message); else { e.target.reset(); flash(document.getElementById('m2'), 'Password changed', 1); }
   };
+}
+function formatLastAccess(value) {
+  if (!value || !Number.isFinite(Date.parse(value))) return 'No access recorded yet';
+  return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 /* ---------------- admin ---------------- */
@@ -2157,10 +2179,10 @@ async function pgAdmin(m) {
     </div></section>`;
 }
 async function pgAdminUsers(m) {
-  const users = await q(sb.rpc('admin_users'));
-  m.innerHTML = `<h2>Student accounts</h2><p class="sub">Search accounts and manage roles, passwords, and account details.</p>
-    <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<table class="users-tbl"><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th></th></tr>
-    ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td class="u-id">${esc(u.student_id)}</td><td class="u-name"><b class="u-nm">${esc(u.name)}</b><br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td data-l="Programme">${esc(u.program || '')}</td><td data-l="Courses">${u.courses}</td><td data-l="Role">${esc(u.role)}</td><td class="u-acts"><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Set temporary password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></td></tr>`).join('')}</table></div>`;
+  const users = await q(sb.rpc('admin_users_with_access'));
+  m.innerHTML = `<h2>Student accounts</h2><p class="sub">Search accounts and manage roles, passwords, and account details. Last access is shown in your local time.</p>
+    <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<table class="users-tbl"><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th>Last access</th><th></th></tr>
+    ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td class="u-id">${esc(u.student_id)}</td><td class="u-name"><b class="u-nm">${esc(u.name)}</b><br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td data-l="Programme">${esc(u.program || '')}</td><td data-l="Courses">${u.courses}</td><td data-l="Role">${esc(u.role)}</td><td data-l="Last access">${esc(formatLastAccess(u.last_access_at))}</td><td class="u-acts"><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Set temporary password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></td></tr>`).join('')}</table></div>`;
   wireUserActions(m);
 }
 async function pgAdminSettings(m) {
@@ -2418,7 +2440,7 @@ async function pgAdminUser(m, uid) {
   const [cs, tt] = await Promise.all([myCourses(uid), getTimetable(uid, u)]);
   const adminUserHtml = `<p><a href="#/admin">&larr; Back to users</a></p><h2>${esc(u.name)}</h2>
   <p class="sub">Student ID <b>${esc(u.student_id)}</b> · ${esc(u.role)} · joined ${esc(new Date(u.created_at).toLocaleDateString())}</p>
-  <div class="card"><h3>Account</h3><div class="row" style="gap:8px">${userButtons(u)}</div></div>
+  <div class="card"><h3>Account</h3><p>Last StudyHub access: <b>${esc(formatLastAccess(u.last_access_at))}</b></p><div class="row" style="gap:8px">${userButtons(u)}</div></div>
   <form class="card" id="ef"><h3>Edit details</h3><p class="mute">The student ID is the login name and can't be changed.</p>${profileFields(u, 'email')}<label>Main timetable group <span class="mute">(optional, e.g. UR6523002 - Y3G1)</span></label><input name="subgroup" value="${esc(u.subgroup)}" maxlength="80"><div id="em"></div><p><button>Save changes</button></p></form>
   <div class="card"><h3>Registered subjects (${cs.reduce((a, c) => a + (c.credit || 0), 0)} credits)</h3>
   ${cs.length ? `<table class="registered-subjects"><thead><tr><th>Code</th><th>Name</th><th>Credit</th><th>Group</th><th>Section</th></tr></thead><tbody>${cs.map((c) => `<tr><td data-label="Code">${esc(c.code)}</td><td data-label="Name">${esc(c.name)}</td><td data-label="Credits">${c.credit ?? ''}</td><td data-label="Group">${esc(c.grp || '')}</td><td data-label="Section">${esc(c.section || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="mute">None.</p>'}</div>
