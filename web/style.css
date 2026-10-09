@@ -603,6 +603,25 @@ button,.btn,input,select,textarea{border-radius:7px}
 .group-change-actions button:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:760px){.group-change-actions{top:60px}.group-change-actions button{flex:1 1 130px}}
 
+/* Personal class-period edits */
+#period-form{display:grid;gap:12px}
+#period-form .row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:end}
+#period-form label{display:block;margin-bottom:5px}
+#period-form select,#period-form input{width:100%;min-width:0}
+#period-form select:disabled{opacity:.65}
+#period-form button{min-height:42px}
+#period-feedback:empty{display:none}
+#period-feedback{margin-top:12px;padding:10px 12px;border-radius:6px;background:var(--card);overflow-wrap:anywhere}
+.period-override-list{display:grid;gap:8px;margin-top:10px}
+.period-override-item{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.period-override-item>span{min-width:0;overflow-wrap:anywhere}
+.period-override-item .mute{display:inline-block;margin-top:4px}
+@media(max-width:760px){
+  #period-form .row{grid-template-columns:minmax(0,1fr)}
+  .period-override-item{align-items:flex-start}
+  .period-override-item button{flex:0 0 auto}
+}
+
 /* Landscape tablets need a full-width workspace instead of desktop side rails. */
 @media (min-width:761px) and (max-width:1440px){
   .shell{flex-direction:column}

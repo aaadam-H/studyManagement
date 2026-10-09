@@ -1,11 +1,11 @@
 {
   "name": "studyhub",
-  "version": "1.2.34",
+  "version": "1.2.36",
   "private": true,
   "type": "module",
   "description": "Dev-only: tests for the StudyHub parsers. The app itself is static files in web/ plus Supabase.",
   "scripts": {
-    "test": "node tests/parsers.test.mjs && node tests/holidays.test.mjs && node tests/group-schedules.test.mjs && node tests/student-id.test.mjs && node tests/maintenance.test.mjs && node tests/zip.test.mjs && node tests/calendar-feed.test.mjs && node tests/calendar-links.test.mjs && node tests/manual-class.test.mjs",
+    "test": "node tests/parsers.test.mjs && node tests/holidays.test.mjs && node tests/group-schedules.test.mjs && node tests/student-id.test.mjs && node tests/maintenance.test.mjs && node tests/zip.test.mjs && node tests/calendar-feed.test.mjs && node tests/calendar-links.test.mjs && node tests/manual-class.test.mjs && node tests/period-overrides.test.mjs",
     "serve": "npx --yes serve web",
     "vendor": "cp node_modules/@supabase/supabase-js/dist/umd/supabase.js web/vendor/ && cp node_modules/pdfjs-dist/build/pdf.min.mjs node_modules/pdfjs-dist/build/pdf.worker.min.mjs web/vendor/"
   },

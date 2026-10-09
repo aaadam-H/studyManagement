@@ -7,6 +7,7 @@ import { createZip } from './zip.js?v=1.2.17';
 import { parseSlipLines, registrationTableLines, parseTimetableDoc, prettyGroup, parseAcademicCalendarLines, academicStatus, parseExamSlipLines } from './parsers.js?v=1.2.27';
 import { restoreCalendarSubscribeLinks, supportsAppleCalendarSubscribe } from './calendar-links.js?v=1.2.34';
 import { readManualClassForm, wireManualClassButton } from './manual-class.js?v=1.2.34';
+import { applyPeriodOverrides, markAdjustedTimetableRows } from './period-overrides.js?v=1.2.36';
 
 const CFG = window.STUDYHUB_CONFIG || {};
 const $app = document.getElementById('app');
@@ -28,7 +29,7 @@ wireManualClassButton(document, () => manualClassSaveHandler, (error) => {
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.35';
+const APP_VERSION = '1.2.36';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -130,9 +131,10 @@ function maintenanceScreen() {
 //    else the only group that teaches it; 'none' hides it
 //  - plus classes the student added by hand
 async function getTimetable(uid = me.id, prof = me) {
-  const [courses, settings, custom, total] = await Promise.all([
+  const [courses, settings, custom, periodOverrides, total] = await Promise.all([
     myCourses(uid), getSettings(),
     q(sb.from('my_classes').select('*').eq('user_id', uid)),
+    q(sb.from('class_period_overrides').select('*').eq('user_id', uid)),
     sb.from('classes').select('id', { count: 'exact', head: true }).then((r) => r.count || 0),
   ]);
   // one call per subject keeps each result small (a common subject can be taught in hundreds of groups)
@@ -150,7 +152,7 @@ async function getTimetable(uid = me.id, prof = me) {
   }
   // the week itself comes from the database (same rules as above), so the calendar export always matches
   const rows = await q(sb.rpc('my_timetable', { target: uid === me.id ? null : uid }));
-  const classes = rows.map((r) => ({ ...r, start: r.start_time, end: r.end_time }));
+  const classes = markAdjustedTimetableRows(rows, periodOverrides).map((r) => ({ ...r, start: r.start_time, end: r.end_time }));
   // suggest main groups: most of the student's subjects first, own programme code first
   const progs = new Set(courses.map((c) => c.grp).filter(Boolean));
   const count = {};
@@ -159,7 +161,7 @@ async function getTimetable(uid = me.id, prof = me) {
     .sort((a, b) => (progs.has(b.split(' - ')[0]) - progs.has(a.split(' - ')[0])) || count[b] - count[a] || a.localeCompare(b))
     .slice(0, 40).map((g) => ({ group: g, n: count[g] }));
   return { url: settings.timetable_url, synced_at: settings.timetable_synced_at, semester_start: settings.semester_start, semester_end: settings.semester_end,
-    break_start: settings.break_start, break_end: settings.break_end, classes, courses, custom, main, groupOptions,
+    break_start: settings.break_start, break_end: settings.break_end, classes, courses, custom, periodOverrides, main, groupOptions,
     myCourseCount: courses.length, totalClassesInDb: total };
 }
 // Academic calendar (periods + holidays) and the semester used for timetable exports
@@ -769,7 +771,7 @@ for (const ev of ['input', 'change']) document.addEventListener(ev, (e) => { if 
 const kindKey = (k) => { k = (k || '').trim(); return /^(LAB|LABORATORY|MAKMAL|PRACTICAL|P)$/i.test(k) ? 'lab' : /^(TUTORIAL|T)$/i.test(k) ? 'tut' : /^(LECTURE|KULIAH|L)$/i.test(k) ? 'lec' : 'oth'; };
 const KIND_LEGEND = '<div class="legend"><span class="k-lec">Lecture</span><span class="k-lab">Lab</span><span class="k-tut">Tutorial</span><span class="k-hol">Holiday</span></div>';
 const classMetaHtml = (parts) => parts.filter(Boolean).map((part) => esc(part).replace(/\bonline\b/ig, '<span class="online-label">ONLINE</span>')).join(' · ');
-const clsHtml = (c) => `<div class="cls k-${kindKey(c.kind)}${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${classMetaHtml([c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section)])}</span></div></div>`;
+const clsHtml = (c) => `<div class="cls k-${kindKey(c.kind)}${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${classMetaHtml([c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section), c.periodAdjusted ? `Time changed in StudyHub (was ${DAYN[c.original_day]} ${c.original_start_time}-${c.original_end_time})` : ''])}</span></div></div>`;
 async function pgDashboard(m) {
   const [tt, asg, bul, ac] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*').order('due_date')), getBulletin(), getAcademic()]);
   const now = new Date();
@@ -1334,6 +1336,7 @@ async function pgTimetable(m) {
     try { groupSchedules = await loadGroupSchedules(sb, tt.courses.map((c) => c.code)); }
     catch { scheduleError = true; }
   }
+  groupSchedules = applyPeriodOverrides(groupSchedules, tt.periodOverrides);
   const scheduleFor = (c, group) => groupScheduleText(groupSchedules[c.code]?.[group]);
   const findClashes = (classes) => {
     const found = {};
@@ -1383,6 +1386,21 @@ async function pgTimetable(m) {
         ${c.groups.map((g) => `<option value="${esc(g)}" ${c.section === g ? 'selected' : ''}>${esc(prettyGroup(g))} — ${esc(scheduleFor(c, g))}</option>`).join('')}
         <option value="none" ${c.section === 'none' ? 'selected' : ''}>Hide this subject</option></select>${c.chosen ? `<p class="group-schedule-note">${esc(scheduleFor(c, c.chosen))}</p>` : ''}`
       : '<span class="mute">Not in the loaded timetable (it may be for a different semester). Add it manually below.</span>'}</td></tr>`).join('')}</table></div>` : ''}
+  ${tt.courses.some((c) => c.groups.length) ? `<div class="card"><h3>Change a class period</h3>
+    <p class="mute">Choose the subject, group, and existing class period, then set the new day and time. This changes only your timetable and calendar subscriptions. It applies when you attend the selected group.</p>
+    ${scheduleError ? '<p class="mute">Class periods could not be loaded right now. Reload this page and try again.</p>' : ''}
+    <form id="period-form"><div class="row">
+      <div><label for="period-course">Subject</label><select id="period-course" required><option value="">Choose a subject</option>${tt.courses.filter((c) => c.groups.length).map((c) => `<option value="${esc(c.code)}">${esc(c.code)} - ${esc(c.name || '')}</option>`).join('')}</select></div>
+      <div><label for="period-group">Group</label><select id="period-group" required disabled><option value="">Choose a group</option></select></div>
+      <div><label for="period-slot">Class period to change</label><select id="period-slot" required disabled><option value="">Choose a class period</option></select></div>
+    </div><div class="row">
+      <div><label for="period-new-day">New day</label><select id="period-new-day" required>${DAYN.slice(1).map((d, i) => `<option value="${i + 1}">${d}</option>`).join('')}</select></div>
+      <div><label for="period-new-start">New start time</label><input id="period-new-start" type="time" required></div>
+      <div><label for="period-new-end">New end time</label><input id="period-new-end" type="time" required></div>
+      <button type="submit" id="save-period-override" ${scheduleError ? 'disabled' : ''}>Save class period</button>
+    </div></form><div id="period-feedback" aria-live="polite"></div>
+    ${tt.periodOverrides.length ? `<h4>Your saved period changes</h4><div class="period-override-list">${tt.periodOverrides.map((o) => `<div class="period-override-item"><span><b>${esc(o.course_code)}</b> · ${esc(groupLabel(o.section))}<br><span class="mute">${DAYN[o.original_day]} ${esc(o.original_start_time)}-${esc(o.original_end_time)} → ${DAYN[o.override_day]} ${esc(o.override_start_time)}-${esc(o.override_end_time)}</span></span><button type="button" class="sm ghost" data-remove-period="${o.id}">Remove</button></div>`).join('')}</div>` : ''}
+  </div>` : ''}
   <div class="card"><h3>Add a class manually</h3>
     <p class="mute">For classes that are missing or different from the university timetable.</p>
     <form id="mc" class="manual-class-form"><div class="row">
@@ -1551,6 +1569,75 @@ async function pgTimetable(m) {
       if (saveGroupChanges.isConnected) saveGroupChanges.textContent = 'Save group changes';
     }
   };
+  const periodForm = m.querySelector('#period-form');
+  if (periodForm) {
+    const periodCourse = m.querySelector('#period-course'), periodGroup = m.querySelector('#period-group'), periodSlot = m.querySelector('#period-slot');
+    const periodDay = m.querySelector('#period-new-day'), periodStart = m.querySelector('#period-new-start'), periodEnd = m.querySelector('#period-new-end');
+    let availablePeriods = [];
+    const periodCourseData = () => tt.courses.find((course) => course.code === periodCourse.value);
+    const updatePeriodFields = () => {
+      const slot = availablePeriods[Number(periodSlot.value)];
+      if (!slot) { periodDay.value = '1'; periodStart.value = ''; periodEnd.value = ''; return; }
+      periodDay.value = String(slot.day);
+      periodStart.value = String(slot.start_time).slice(0, 5);
+      periodEnd.value = String(slot.end_time).slice(0, 5);
+    };
+    const updatePeriodSlots = () => {
+      availablePeriods = groupSchedules[periodCourse.value]?.[periodGroup.value] || [];
+      periodSlot.replaceChildren(new Option('Choose a class period', ''));
+      availablePeriods.forEach((slot, index) => {
+        const oldSlot = `${DAYN[slot.source_day]} ${slot.source_start_time}-${slot.source_end_time}`;
+        const current = slot.periodAdjusted ? ` · currently ${DAYN[slot.day]} ${slot.start_time}-${slot.end_time}` : '';
+        periodSlot.add(new Option(oldSlot + current, String(index)));
+      });
+      periodSlot.disabled = !availablePeriods.length;
+      periodSlot.value = availablePeriods.length ? '0' : '';
+      updatePeriodFields();
+    };
+    periodCourse.onchange = () => {
+      const course = periodCourseData();
+      periodGroup.replaceChildren(new Option('Choose a group', ''));
+      (course?.groups || []).forEach((group) => periodGroup.add(new Option(prettyGroup(group), group)));
+      periodGroup.disabled = !course?.groups.length;
+      const preferred = course?.chosen || (tt.main && course?.groups.includes(tt.main) ? tt.main : course?.groups[0]);
+      periodGroup.value = preferred || '';
+      updatePeriodSlots();
+    };
+    periodGroup.onchange = updatePeriodSlots;
+    periodSlot.onchange = updatePeriodFields;
+    periodForm.onsubmit = async (event) => {
+      event.preventDefault();
+      const slot = availablePeriods[Number(periodSlot.value)], course = periodCourseData();
+      if (!slot || !course || !periodGroup.value) return flash(m.querySelector('#period-feedback'), 'Choose a subject, group, and class period first.');
+      if (periodEnd.value <= periodStart.value) return flash(m.querySelector('#period-feedback'), 'The end time must be later than the start time.');
+      const source = { user_id: me.id, course_code: course.code, section: periodGroup.value, original_day: slot.source_day,
+        original_start_time: slot.source_start_time, original_end_time: slot.source_end_time };
+      const saved = tt.periodOverrides.find((item) => item.course_code === source.course_code && item.section === source.section
+        && Number(item.original_day) === Number(source.original_day) && item.original_start_time.slice(0, 5) === source.original_start_time
+        && item.original_end_time.slice(0, 5) === source.original_end_time);
+      const restoreOriginal = Number(periodDay.value) === Number(slot.source_day)
+        && periodStart.value === slot.source_start_time && periodEnd.value === slot.source_end_time;
+      try {
+        if (restoreOriginal) {
+          if (!saved) return flash(m.querySelector('#period-feedback'), 'That class period already matches the university timetable.');
+          await q(sb.from('class_period_overrides').delete().eq('user_id', me.id).eq('id', saved.id));
+        } else {
+          await q(sb.from('class_period_overrides').upsert({ ...source, override_day: Number(periodDay.value),
+            override_start_time: periodStart.value, override_end_time: periodEnd.value, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id,course_code,section,original_day,original_start_time,original_end_time' }));
+        }
+        await render();
+        flash(document.querySelector('#period-feedback'), restoreOriginal ? 'Restored the university class period.' : 'Class period saved. Your timetable and calendar feeds are updated.', true);
+      } catch (error) { flash(m.querySelector('#period-feedback'), error.message || 'Could not save this class period.'); }
+    };
+    m.querySelectorAll('[data-remove-period]').forEach((button) => (button.onclick = async () => {
+      try {
+        await q(sb.from('class_period_overrides').delete().eq('user_id', me.id).eq('id', button.dataset.removePeriod));
+        await render();
+        flash(document.querySelector('#period-feedback'), 'Class period restored to the university timetable.', true);
+      } catch (error) { flash(m.querySelector('#period-feedback'), error.message || 'Could not remove this change.'); }
+    }));
+  }
   const manualClassForm = m.querySelector('#mc');
   const manualClassFeedback = m.querySelector('#mcm');
   const manualField = (name) => manualClassForm.querySelector(`[name="${name}"]`);
