@@ -1,3 +1,4 @@
+import { loadPlannedTimetable, combinePlannedTimetable } from './planned-timetable.js?v=1.2.38';
 import { mountSubjectPlanner } from './subject-planner.js?v=1.2.37';
 import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.14';
 import { parseStudentId } from './student-id.js?v=1.1.16';
@@ -30,7 +31,7 @@ wireManualClassButton(document, () => manualClassSaveHandler, (error) => {
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.37';
+const APP_VERSION = '1.2.38';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -772,7 +773,7 @@ for (const ev of ['input', 'change']) document.addEventListener(ev, (e) => { if 
 const kindKey = (k) => { k = (k || '').trim(); return /^(LAB|LABORATORY|MAKMAL|PRACTICAL|P)$/i.test(k) ? 'lab' : /^(TUTORIAL|T)$/i.test(k) ? 'tut' : /^(LECTURE|KULIAH|L)$/i.test(k) ? 'lec' : 'oth'; };
 const KIND_LEGEND = '<div class="legend"><span class="k-lec">Lecture</span><span class="k-lab">Lab</span><span class="k-tut">Tutorial</span><span class="k-hol">Holiday</span></div>';
 const classMetaHtml = (parts) => parts.filter(Boolean).map((part) => esc(part).replace(/\bonline\b/ig, '<span class="online-label">ONLINE</span>')).join(' · ');
-const clsHtml = (c) => `<div class="cls k-${kindKey(c.kind)}${c.custom ? ' own' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}<br><span class="mute">${classMetaHtml([c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section), c.periodAdjusted ? `Time changed in StudyHub (was ${DAYN[c.original_day]} ${c.original_start_time}-${c.original_end_time})` : ''])}</span></div></div>`;
+const clsHtml = (c) => `<div class="cls k-${kindKey(c.kind)}${c.custom ? ' own' : ''}${c.planned ? ' planned-class' : ''}${c.planClash ? ' planned-clash' : ''}"><div class="t">${esc(c.start)} - ${esc(c.end)}</div><div><b>${esc(c.course_code)}</b> ${esc(c.course_name || '')}${c.planned ? `<span class="planned-badge">${c.alsoRegistered ? 'Registered · Planned' : 'Planned'}</span>` : ''}${c.planClash ? '<span class="clash-note">Clashes with another class</span>' : ''}<br><span class="mute">${classMetaHtml([c.kind, c.venue, c.lecturer, c.custom ? c.section : prettyGroup(c.section), c.periodAdjusted ? `Time changed in StudyHub (was ${DAYN[c.original_day]} ${c.original_start_time}-${c.original_end_time})` : ''])}</span></div></div>`;
 async function pgDashboard(m) {
   const [tt, asg, bul, ac] = await Promise.all([getTimetable(), q(sb.from('assignments').select('*').order('due_date')), getBulletin(), getAcademic()]);
   const now = new Date();
@@ -1331,6 +1332,10 @@ function drawTimetableWallpaper(canvas, tt, options) {
 }
 async function pgTimetable(m) {
   const [tt, ac] = await Promise.all([getTimetable(), getAcademic()]);
+  let planned = { count: 0, classes: [], missing: [] }, planError = false;
+  try { planned = await loadPlannedTimetable(sb, window.localStorage, me.id); }
+  catch { planError = true; }
+  const previewClasses = combinePlannedTimetable(tt.classes, planned.classes);
   const noData = !tt.totalClassesInDb;
   let groupSchedules = {}, scheduleError = false;
   if (!noData && tt.courses.length) {
@@ -1359,7 +1364,11 @@ async function pgTimetable(m) {
   const timetableHtml = `<h2>Timetable</h2><p class="sub">Built from your registered subjects and the university timetable. Mix-and-match groups are fine.</p>
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
   ${noData ? `<div class="card">The university timetable has not been loaded yet. ${isAdmin() ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
-  <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}</span></div>${weekHtml(tt)}</section>
+  <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}${planned.count ? ` · ${planned.count} planned ${planned.count === 1 ? 'subject' : 'subjects'}` : ''}</span></div>
+  ${planned.count ? '<div class="planned-timetable-controls"><label><input type="checkbox" id="show-planned-subjects" checked> Show planned subjects</label><a href="#/courses">Edit subject plan</a><p class="mute">Highlighted classes are planned subjects. They are not added to your registered timetable, wallpaper or calendar subscriptions.</p></div>' : '<p class="mute"><a href="#/courses">Plan subjects before registering</a></p>'}
+  ${planError ? '<p class="err" role="status">Planned subjects could not be loaded. Your registered classes are still shown. Reload to retry.</p>' : ''}
+  ${planned.missing.length ? `<p class="mute" role="status">No current timetable group found for planned subjects: ${esc(planned.missing.join(', '))}. <a href="#/courses">Review your plan</a>.</p>` : ''}
+  <div id="timetable-week-classes">${weekHtml({ ...tt, classes: previewClasses })}</div></section>
   <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Choose the layout, size, colors and details. The preview keeps content clear of phone notches and home indicators.</p></div><div class="wallpaper-controls">
     <div class="wallpaper-selects"><label>Orientation<select id="wallpaper-orientation" data-plain><option value="auto">Auto (match device)</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label><label>Image size<select id="wallpaper-size" data-plain></select></label><label>Color palette<select id="wallpaper-palette" data-plain>${[['midnight','Midnight'],['paper','Paper (light)'],['ocean','Ocean'],['forest','Forest'],['rose','Rose'],['sunset','Sunset'],['lavender','Lavender'],['contrast','High contrast']].map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label></div>
     <p class="wallpaper-recommendation mute" id="wallpaper-recommendation"></p>
@@ -1417,6 +1426,10 @@ async function pgTimetable(m) {
   </section>`;
   // Sanitize the complete template before it enters the live document.
   m.replaceChildren(DOMPurify.sanitize(timetableHtml, { RETURN_DOM_FRAGMENT: true }));
+  const plannedToggle = m.querySelector('#show-planned-subjects');
+  if (plannedToggle) plannedToggle.onchange = () => {
+    m.querySelector('#timetable-week-classes').replaceChildren(DOMPurify.sanitize(weekHtml({ ...tt, classes: plannedToggle.checked ? previewClasses : tt.classes }), { RETURN_DOM_FRAGMENT: true }));
+  };
   const wallpaper = m.querySelector('#timetable-wallpaper');
   const wallpaperZoom = m.querySelector('#timetable-wallpaper-zoom');
   const wallpaperZoomDialog = m.querySelector('#wallpaper-preview-dialog');

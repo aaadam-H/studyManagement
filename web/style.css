@@ -669,3 +669,11 @@ button,.btn,input,select,textarea{border-radius:7px}
 .planner-day p{margin:6px 0;overflow-wrap:anywhere}
 .planner-selection:not(:empty){margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
 .subject-planner select{max-width:100%}
+
+.cls.planned-class{background:color-mix(in srgb,var(--brand) 12%,var(--card));border:2px dashed var(--brand);border-radius:8px;padding:10px;margin:8px 0}
+.planned-badge{display:inline-block;margin:4px 0 4px 8px;padding:2px 8px;border:1px solid var(--brand);border-radius:20px;color:var(--brand);font-size:12px;font-weight:700}
+.cls.planned-clash{border-color:var(--red,#dc3545)}
+.planned-timetable-controls{margin:8px 0 14px}
+.planned-timetable-controls label{display:inline-flex;align-items:center;gap:8px;margin-right:12px}
+.planned-timetable-controls input{width:auto;min-height:20px;accent-color:var(--brand)}
+.planned-timetable-controls p{margin:6px 0;font-size:13px}
