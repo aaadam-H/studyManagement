@@ -27,6 +27,8 @@ jobs:
           rm -rf .pages-build/web
           mkdir -p .pages-build/web
           cp -a web/. .pages-build/web/
+          # Both deployment layouts contain /web; resolve root-page assets there.
+          sed -i 's|<head>|<head><base href="web/">|' .pages-build/index.html
           touch .pages-build/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
