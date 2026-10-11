@@ -31,7 +31,7 @@ wireManualClassButton(document, () => manualClassSaveHandler, (error) => {
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.39';
+const APP_VERSION = '1.2.40';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1300,6 +1300,10 @@ function drawTimetableWallpaper(canvas, tt, options) {
     for (const item of day.items) {
       const cardY = y, cardH = Math.max(25 * scale, rowHeight - 6 * scale);
       ctx.fillStyle = colors.card; roundedRect(margin, cardY, width - margin * 2, cardH, 12 * scale);
+      if (item.planned && !item.alsoRegistered) {
+        ctx.save(); ctx.strokeStyle = colors.accent; ctx.lineWidth = 2 * scale;
+        ctx.setLineDash([8 * scale, 6 * scale]); ctx.stroke(); ctx.restore();
+      }
       const type = (item.kind || '').toUpperCase();
       const color = /LAB/.test(type) ? colors.lab : /TUT/.test(type) ? colors.tutorial : /LECT/.test(type) ? colors.lecture : colors.other;
       ctx.fillStyle = color; roundedRect(margin, cardY, 7, cardH, 4);
@@ -1309,7 +1313,7 @@ function drawTimetableWallpaper(canvas, tt, options) {
       const timeX = margin + 22 * scale, textX = margin + Math.min(220 * scale, (width - margin * 2) * 0.32), textWidth = width - margin - textX - 22 * scale;
       const textY = compact ? cardY + Math.max(fontSize + 3 * scale, cardH - 7 * scale) : cardY + 27 * scale;
       ctx.fillText(fitText(`${item.start_time}–${item.end_time}`, textX - timeX - 12 * scale), timeX, textY);
-      ctx.fillText(fitText(item.course_name || item.title || 'Class', textWidth), textX, textY);
+      ctx.fillText(fitText(`${item.planned && !item.alsoRegistered ? 'PLANNED · ' : ''}${item.course_name || item.title || 'Class'}`, textWidth), textX, textY);
       if (!compact) {
         const details = [
           options.showCode && item.course_code,
@@ -1365,7 +1369,7 @@ async function pgTimetable(m) {
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
   ${noData ? `<div class="card">The university timetable has not been loaded yet. ${isAdmin() ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
   <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}${planned.count ? ` · ${planned.count} planned ${planned.count === 1 ? 'subject' : 'subjects'}` : ''}</span></div>
-  ${planned.count ? '<div class="planned-timetable-controls"><label><input type="checkbox" id="show-planned-subjects" checked> Show planned subjects</label><a href="#/courses">Edit manual registration</a><p class="mute">Highlighted classes are planned subjects. They are not added to your registered timetable, wallpaper or calendar subscriptions.</p></div>' : '<p class="mute"><a href="#/courses">Manual registration</a></p>'}
+  ${planned.count ? '<div class="planned-timetable-controls"><label><input type="checkbox" id="show-planned-subjects" checked> Show planned subjects</label><a href="#/courses">Edit manual registration</a><p class="mute">Highlighted classes are planned subjects. They appear in your wallpaper while shown here, but do not change your registered courses or calendar subscriptions.</p></div>' : '<p class="mute"><a href="#/courses">Manual registration</a></p>'}
   ${planError ? '<p class="err" role="status">Planned subjects could not be loaded. Your registered classes are still shown. Reload to retry.</p>' : ''}
   ${planned.missing.length ? `<p class="mute" role="status">No current timetable group found for planned subjects: ${esc(planned.missing.join(', '))}. <a href="#/courses">Review manual registration</a>.</p>` : ''}
   <div id="timetable-week-classes">${weekHtml({ ...tt, classes: previewClasses })}</div></section>
@@ -1379,7 +1383,7 @@ async function pgTimetable(m) {
     <fieldset class="wallpaper-toggles"><legend>Show on wallpaper</legend>
       ${[['showTitle','Title and weekly summary'],['showGroup','My group'],['showCode','Subject codes'],['showType','Class type'],['showVenue','Venue'],['showLecturer','Lecturer'],['showSection','Class group'],['showDayCounts','Classes per day']].map(([key, label]) => `<label><input type="checkbox" data-wallpaper-option="${key}"> ${label}</label>`).join('')}
       <p class="mute">Subject names, days and class times are always shown.</p>
-    </fieldset></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Preview of your timetable wallpaper"></canvas><dialog class="wallpaper-zoom-dialog" id="wallpaper-preview-dialog" aria-labelledby="wallpaper-preview-title"><div class="wallpaper-zoom-head"><h3 id="wallpaper-preview-title">Wallpaper preview</h3><button type="button" class="ghost" id="wallpaper-zoom-close" aria-label="Close enlarged preview">Close</button></div><canvas id="timetable-wallpaper-zoom" width="1080" height="1920" aria-label="Enlarged live preview of your timetable wallpaper"></canvas></dialog><div class="btns"><button type="button" id="download-wallpaper" ${tt.classes.length ? '' : 'disabled'}>Download wallpaper</button><button type="button" class="ghost" id="wallpaper-zoom-open" aria-haspopup="dialog">Zoom preview</button><span class="mute" id="wallpaper-msg">${tt.classes.length ? 'Preparing preview…' : 'Choose groups or add classes to build your week first.'}</span></div></div>
+    </fieldset></div><canvas id="timetable-wallpaper" width="1080" height="1920" aria-label="Preview of your timetable wallpaper"></canvas><dialog class="wallpaper-zoom-dialog" id="wallpaper-preview-dialog" aria-labelledby="wallpaper-preview-title"><div class="wallpaper-zoom-head"><h3 id="wallpaper-preview-title">Wallpaper preview</h3><button type="button" class="ghost" id="wallpaper-zoom-close" aria-label="Close enlarged preview">Close</button></div><canvas id="timetable-wallpaper-zoom" width="1080" height="1920" aria-label="Enlarged live preview of your timetable wallpaper"></canvas></dialog><div class="btns"><button type="button" id="download-wallpaper" ${previewClasses.length ? '' : 'disabled'}>Download wallpaper</button><button type="button" class="ghost" id="wallpaper-zoom-open" aria-haspopup="dialog">Zoom preview</button><span class="mute" id="wallpaper-msg">${previewClasses.length ? 'Preparing preview…' : 'Choose groups or add classes to build your week first.'}</span></div></div>
   <p class="mute timetable-source">Source: ${esc(tt.url || '-')}${tt.synced_at ? ' · loaded ' + esc(new Date(tt.synced_at).toLocaleString()) : ''}</p>
   <section class="timetable-settings" id="timetable-settings"><h3>Groups, classes and calendar settings</h3><div id="timetable-group-feedback" aria-live="polite"></div>
   ${tt.myCourseCount && !noData ? `<div class="card"><h3>Your main group</h3>
@@ -1429,6 +1433,7 @@ async function pgTimetable(m) {
   const plannedToggle = m.querySelector('#show-planned-subjects');
   if (plannedToggle) plannedToggle.onchange = () => {
     m.querySelector('#timetable-week-classes').replaceChildren(DOMPurify.sanitize(weekHtml({ ...tt, classes: plannedToggle.checked ? previewClasses : tt.classes }), { RETURN_DOM_FRAGMENT: true }));
+    refreshWallpaper();
   };
   const wallpaper = m.querySelector('#timetable-wallpaper');
   const wallpaperZoom = m.querySelector('#timetable-wallpaper-zoom');
@@ -1472,7 +1477,9 @@ async function pgTimetable(m) {
     if (wallpaperZoom.width !== width) wallpaperZoom.width = width;
     if (wallpaperZoom.height !== height) wallpaperZoom.height = height;
     wallpaperZoom.style.aspectRatio = `${width} / ${height}`;
-    try { drawTimetableWallpaper(wallpaper, tt, options); drawTimetableWallpaper(wallpaperZoom, tt, options); }
+    const visibleTimetable = { ...tt, classes: plannedToggle?.checked === false ? tt.classes : previewClasses };
+    m.querySelector('#download-wallpaper').disabled = !visibleTimetable.classes.length;
+    try { drawTimetableWallpaper(wallpaper, visibleTimetable, options); drawTimetableWallpaper(wallpaperZoom, visibleTimetable, options); }
     catch (error) { flash(m.querySelector('#wallpaper-msg'), 'Could not update the preview: ' + error.message); return; }
     const message = m.querySelector('#wallpaper-msg');
     if (message) message.textContent = `${width} × ${height} px PNG${options.size === 'auto' ? ' · recommended' : ''}`;
