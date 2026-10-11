@@ -55,7 +55,7 @@ export async function loadPlannerCatalog(client) {
 export function mountSubjectPlanner(root, { client, userId, registeredCodes = [], storage }) {
   if (!storage) { try { storage = window.localStorage; } catch {} }
   const setHtml = (node, html) => node.replaceChildren(DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true }));
-  setHtml(root, `<h3>Pre-register subjects</h3><p class="mute">Explore subjects from the uploaded timetable and build a planned week before registering. Your draft is saved on this device for your account; it does not change your registered courses or register you with the university.</p><button type="button" data-open-planner>Browse subjects</button><div data-planner-body hidden></div><p data-planner-message role="status"></p>`);
+  setHtml(root, `<h3>Manual registration</h3><p class="mute">Explore subjects from the uploaded timetable and build a planned week before registering. Your draft is saved on this device for your account; it does not change your registered courses or register you with the university.</p><button type="button" data-open-planner>Browse subjects</button><div data-planner-body hidden></div><p data-planner-message role="status"></p>`);
   const message = root.querySelector('[data-planner-message]'), body = root.querySelector('[data-planner-body]'), open = root.querySelector('[data-open-planner]');
   let catalog = [], plan = readSubjectPlan(storage, userId), schedules = {}, selection = null, request = 0, loaded = false;
   const say = (text) => { message.textContent = text; };
