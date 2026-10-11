@@ -1,5 +1,5 @@
 import { loadPlannedTimetable, combinePlannedTimetable } from './planned-timetable.js?v=1.2.38';
-import { mountSubjectPlanner } from './subject-planner.js?v=1.2.37';
+import { mountSubjectPlanner } from './subject-planner.js?v=1.2.38';
 import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.14';
 import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
@@ -1365,9 +1365,9 @@ async function pgTimetable(m) {
   ${!tt.myCourseCount ? '<div class="card">You have no subjects yet. <a href="#/courses">Upload your registration slip</a>.</div>' : ''}
   ${noData ? `<div class="card">The university timetable has not been loaded yet. ${isAdmin() ? '<a href="#/admin">Load it in Admin</a>.' : 'Ask an admin to load it.'} You can still add classes yourself below.</div>` : ''}
   <section class="week-focus"><div class="week-focus-head"><h3>Your week</h3><span class="mute">${tt.classes.length} scheduled ${tt.classes.length === 1 ? 'class' : 'classes'}${planned.count ? ` · ${planned.count} planned ${planned.count === 1 ? 'subject' : 'subjects'}` : ''}</span></div>
-  ${planned.count ? '<div class="planned-timetable-controls"><label><input type="checkbox" id="show-planned-subjects" checked> Show planned subjects</label><a href="#/courses">Edit subject plan</a><p class="mute">Highlighted classes are planned subjects. They are not added to your registered timetable, wallpaper or calendar subscriptions.</p></div>' : '<p class="mute"><a href="#/courses">Plan subjects before registering</a></p>'}
+  ${planned.count ? '<div class="planned-timetable-controls"><label><input type="checkbox" id="show-planned-subjects" checked> Show planned subjects</label><a href="#/courses">Edit manual registration</a><p class="mute">Highlighted classes are planned subjects. They are not added to your registered timetable, wallpaper or calendar subscriptions.</p></div>' : '<p class="mute"><a href="#/courses">Manual registration</a></p>'}
   ${planError ? '<p class="err" role="status">Planned subjects could not be loaded. Your registered classes are still shown. Reload to retry.</p>' : ''}
-  ${planned.missing.length ? `<p class="mute" role="status">No current timetable group found for planned subjects: ${esc(planned.missing.join(', '))}. <a href="#/courses">Review your plan</a>.</p>` : ''}
+  ${planned.missing.length ? `<p class="mute" role="status">No current timetable group found for planned subjects: ${esc(planned.missing.join(', '))}. <a href="#/courses">Review manual registration</a>.</p>` : ''}
   <div id="timetable-week-classes">${weekHtml({ ...tt, classes: previewClasses })}</div></section>
   <div class="card wallpaper-card"><div><h3>Timetable wallpaper</h3><p class="mute">Choose the layout, size, colors and details. The preview keeps content clear of phone notches and home indicators.</p></div><div class="wallpaper-controls">
     <div class="wallpaper-selects"><label>Orientation<select id="wallpaper-orientation" data-plain><option value="auto">Auto (match device)</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label><label>Image size<select id="wallpaper-size" data-plain></select></label><label>Color palette<select id="wallpaper-palette" data-plain>${[['midnight','Midnight'],['paper','Paper (light)'],['ocean','Ocean'],['forest','Forest'],['rose','Rose'],['sunset','Sunset'],['lavender','Lavender'],['contrast','High contrast']].map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label></div>

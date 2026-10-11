@@ -1,4 +1,4 @@
-import { readSubjectPlan } from './subject-planner.js';
+import { readSubjectPlan } from './subject-planner.js?v=1.2.38';
 
 // Load the selected groups only; plans never enter the saved enrolment list.
 export async function loadPlannedTimetable(client, storage, userId) {
