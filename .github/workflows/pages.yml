@@ -20,8 +20,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Prepare app and legacy URL assets
+        run: |
+          mkdir -p .pages-build
+          cp -a web/. .pages-build/
+          rm -rf .pages-build/web
+          mkdir -p .pages-build/web
+          cp -a web/. .pages-build/web/
+          touch .pages-build/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web
+          path: .pages-build
       - id: deployment
         uses: actions/deploy-pages@v4

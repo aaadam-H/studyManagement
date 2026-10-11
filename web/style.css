@@ -677,3 +677,5 @@ button,.btn,input,select,textarea{border-radius:7px}
 .planned-timetable-controls label{display:inline-flex;align-items:center;gap:8px;margin-right:12px}
 .planned-timetable-controls input{width:auto;min-height:20px;accent-color:var(--brand)}
 .planned-timetable-controls p{margin:6px 0;font-size:13px}
+
+.startup-error{max-width:540px;margin:12vh auto;padding:24px;color:var(--ink)}
