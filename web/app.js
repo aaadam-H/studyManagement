@@ -1,3 +1,4 @@
+import { mountSubjectPlanner } from './subject-planner.js?v=1.2.37';
 import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.14';
 import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
@@ -29,7 +30,7 @@ wireManualClassButton(document, () => manualClassSaveHandler, (error) => {
 const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.36';
+const APP_VERSION = '1.2.37';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -1899,6 +1900,7 @@ function mountSlipUpload(root, onSaved) {
 async function pgCourses(m) {
   const cs = await myCourses();
   const coursesHtml = `<h2>My Courses</h2><p class="sub">Upload your course registration slip (PDF). It is read in your browser; only the course list is saved.</p>
+  <section class="card subject-planner" id="subject-planner"></section>
   <div class="card">${SLIP_FORM}</div>
   <div class="card"><h3>Registered courses (${cs.reduce((a, c) => a + (c.credit || 0), 0)} credits)</h3>
   ${cs.length ? `<div class="course-list">${cs.map((c) => `<article class="course-item"><div class="course-head"><b class="course-code">${esc(c.code)}</b><span class="tag course-credit">${esc(c.credit ?? '—')} ${c.credit === 1 ? 'credit' : 'credits'}</span><button class="sm ghost course-remove" data-rm="${esc(c.code)}" aria-label="Remove ${esc(c.code)}">Remove</button></div><h4>${esc(c.name || 'Untitled course')}</h4><p class="mute"><span>Programme group</span> ${esc(c.grp || 'Not specified')}</p></article>`).join('')}</div>` : '<p class="mute">None yet.</p>'}
@@ -1912,6 +1914,7 @@ async function pgCourses(m) {
     catch (err) { flash(document.getElementById('addmsg'), err.message); }
   };
   mountSlipUpload(m, render);
+  mountSubjectPlanner(m.querySelector('#subject-planner'), { client: sb, userId: me.id, registeredCodes: cs.map((course) => course.code) });
 }
 
 /* ---------------- bulletin ---------------- */
