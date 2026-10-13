@@ -1,17 +1,19 @@
 {
   "name": "studyhub",
-  "version": "1.2.40",
+  "version": "1.2.41",
   "private": true,
   "type": "module",
   "description": "Dev-only: tests for the StudyHub parsers. The app itself is static files in web/ plus Supabase.",
   "scripts": {
-    "test": "node tests/parsers.test.mjs && node tests/holidays.test.mjs && node tests/group-schedules.test.mjs && node tests/student-id.test.mjs && node tests/maintenance.test.mjs && node tests/zip.test.mjs && node tests/calendar-feed.test.mjs && node tests/calendar-links.test.mjs && node tests/manual-class.test.mjs && node tests/period-overrides.test.mjs && node tests/subject-planner.test.mjs && node tests/planned-timetable.test.mjs && node tests/wallpaper-planned-subjects.test.mjs",
+    "test": "node tests/parsers.test.mjs && node tests/holidays.test.mjs && node tests/group-schedules.test.mjs && node tests/student-id.test.mjs && node tests/maintenance.test.mjs && node tests/zip.test.mjs && node tests/calendar-feed.test.mjs && node tests/calendar-links.test.mjs && node tests/manual-class.test.mjs && node tests/period-overrides.test.mjs && node tests/account-plans.test.mjs && node tests/subject-planner.test.mjs && node tests/planned-timetable.test.mjs && node tests/wallpaper-planned-subjects.test.mjs",
     "serve": "npx --yes serve web",
-    "vendor": "cp node_modules/@supabase/supabase-js/dist/umd/supabase.js web/vendor/ && cp node_modules/pdfjs-dist/build/pdf.min.mjs node_modules/pdfjs-dist/build/pdf.worker.min.mjs web/vendor/"
+    "vendor": "cp node_modules/@supabase/supabase-js/dist/umd/supabase.js web/vendor/ && cp node_modules/pdfjs-dist/build/pdf.min.mjs node_modules/pdfjs-dist/build/pdf.worker.min.mjs web/vendor/",
+    "test:browser": "node tests/admin-browser.test.mjs"
   },
   "devDependencies": {
     "@supabase/supabase-js": "2.117.2",
     "linkedom": "^0.18.9",
-    "pdfjs-dist": "4.10.38"
+    "pdfjs-dist": "4.10.38",
+    "playwright": "1.56.1"
   }
 }

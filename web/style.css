@@ -679,3 +679,18 @@ button,.btn,input,select,textarea{border-radius:7px}
 .planned-timetable-controls p{margin:6px 0;font-size:13px}
 
 .startup-error{max-width:540px;margin:12vh auto;padding:24px;color:var(--ink)}
+
+/* Account actions remain visible at tablet and phone widths. */
+.admin-users-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:14px}
+.admin-user-card{min-width:0;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--bg);overflow-wrap:anywhere}
+.admin-user-card[hidden],.admin-timetable-entry[hidden]{display:none}
+.admin-user-heading{display:flex;align-items:start;justify-content:space-between;gap:12px}
+.admin-user-heading p{margin:3px 0}.admin-user-contact{font-size:14px}
+.admin-user-card dl{margin:12px 0}.admin-user-card dl>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:12px;margin:8px 0}
+.admin-user-card dt{color:var(--mute);font-size:13px}.admin-user-card dd{margin:0}
+.admin-user-card .acts{display:flex;flex-wrap:wrap;gap:8px}.admin-user-card .acts>*{max-width:100%;white-space:normal}
+.admin-timetable-entry>summary{cursor:pointer;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:4px 0}
+.admin-timetable-entry[open]>summary{padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.admin-plan-toggle{display:flex;align-items:center;gap:8px;margin:14px 0}.admin-plan-toggle input{width:auto}
+.admin-timetable-wallpaper{display:block;width:100%;max-width:360px;height:auto;border-radius:12px;margin:14px 0;border:1px solid var(--line)}
+.admin-wallpaper-details{margin:14px 0}.admin-wallpaper-details summary{cursor:pointer;font-weight:600}
