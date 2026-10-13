@@ -1,8 +1,8 @@
-import { readSubjectPlan } from './subject-planner.js?v=1.2.38';
+import { loadAccountSubjectPlan } from './account-plans.js?v=1.2.41';
 
 // Load the selected groups only; plans never enter the saved enrolment list.
 export async function loadPlannedTimetable(client, storage, userId) {
-  const plan = readSubjectPlan(storage, userId);
+  const plan = await loadAccountSubjectPlan(client, storage, userId);
   const results = await Promise.all(plan.map(async (item) => {
     const [{ data: courses, error: courseError }, rows] = await Promise.all([
       client.from('courses').select('name').eq('code', item.code).range(0, 0),

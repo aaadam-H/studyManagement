@@ -3,19 +3,8 @@ import { groupScheduleText, loadGroupSchedules } from './group-schedules.js';
 
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const days = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const storageKey = (userId) => `studyhub.subject-plan.v1.${userId}`;
-
-export function readSubjectPlan(storage, userId) {
-  try {
-    const saved = JSON.parse(storage.getItem(storageKey(userId)) || '[]');
-    if (!Array.isArray(saved)) return [];
-    const unique = new Map();
-    for (const item of saved) {
-      if (/^[A-Z]{3}\d{5}$/.test(item?.code) && typeof item.section === 'string' && item.section.trim() && item.section.length <= 200) unique.set(item.code, { code: item.code, section: item.section });
-    }
-    return [...unique.values()];
-  } catch { return []; }
-}
+export { readSubjectPlan } from './account-plans.js?v=1.2.41';
+import { loadAccountSubjectPlan, saveAccountSubjectPlan } from './account-plans.js?v=1.2.41';
 
 export function searchSubjects(courses, query) {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -55,17 +44,28 @@ export async function loadPlannerCatalog(client) {
 export function mountSubjectPlanner(root, { client, userId, registeredCodes = [], storage }) {
   if (!storage) { try { storage = window.localStorage; } catch {} }
   const setHtml = (node, html) => node.replaceChildren(DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true }));
-  setHtml(root, `<h3>Manual registration</h3><p class="mute">Explore subjects from the uploaded timetable and build a planned week before registering. Your draft is saved on this device for your account; it does not change your registered courses or register you with the university.</p><button type="button" data-open-planner>Browse subjects</button><div data-planner-body hidden></div><p data-planner-message role="status"></p>`);
+  setHtml(root, `<h3>Manual registration</h3><p class="mute">Explore subjects from the uploaded timetable and build a planned week before registering. Your plan is saved to your account and can be viewed by admins to help with your timetable; it does not change your registered courses or register you with the university.</p><button type="button" data-open-planner>Browse subjects</button><div data-planner-body hidden></div><p data-planner-message role="status"></p>`);
   const message = root.querySelector('[data-planner-message]'), body = root.querySelector('[data-planner-body]'), open = root.querySelector('[data-open-planner]');
-  let catalog = [], plan = readSubjectPlan(storage, userId), schedules = {}, selection = null, request = 0, loaded = false;
+  let accountLoad = loadAccountSubjectPlan(client, storage, userId).then((plan) => ({ plan }), (error) => ({ error }));
+  let catalog = [], plan = [], schedules = {}, selection = null, request = 0, loaded = false;
   const say = (text) => { message.textContent = text; };
   const getSchedules = async (code) => {
     if (!schedules[code]) Object.assign(schedules, await loadGroupSchedules(client, [code]));
     return schedules[code];
   };
-  const persist = (next) => {
-    try { storage.setItem(storageKey(userId), JSON.stringify(next)); plan = next; return true; }
-    catch { say('Your draft could not be saved. Check that browser storage is available.'); return false; }
+  let saving = false;
+  const persist = async (next) => {
+    if (saving) return false;
+    saving = true;
+    body.querySelectorAll('button,select').forEach((control) => { control.disabled = true; });
+    try { await saveAccountSubjectPlan(client, storage, userId, next); plan = next; return true; }
+    catch (error) { say(`Your plan could not be saved: ${error.message}. Please retry.`); return false; }
+    finally {
+      saving = false;
+      body.querySelectorAll('button,select').forEach((control) => { control.disabled = false; });
+      const save = body.querySelector('[data-save-plan]');
+      if (save) save.disabled = !body.querySelector('[data-selected-group]')?.value;
+    }
   };
   const drawPlan = () => {
     const slots = plannedSlots(plan, schedules), clashes = planClashes(slots);
@@ -75,8 +75,8 @@ export function mountSubjectPlanner(root, { client, userId, registeredCodes = []
       return `<article class="course-item"><div class="course-head"><b>${escape(item.code)}</b><button type="button" class="sm ghost" data-remove-plan="${escape(item.code)}">Remove</button></div><h4>${escape(course?.name || 'Subject name unavailable')}</h4><label>Planned group<select data-plan-group="${escape(item.code)}" data-plain>${!groups[item.section] ? `<option value="${escape(item.section)}">${escape(item.section)} — no longer in timetable</option>` : ''}${Object.keys(groups).sort().map((group) => `<option value="${escape(group)}" ${group === item.section ? 'selected' : ''}>${escape(group)} — ${escape(groupScheduleText(groups[group]))}</option>`).join('')}</select></label><p>${escape(groupScheduleText(groups[item.section]))}</p>${clashes.has(item.code) ? '<p class="clash-note">Clashes with another planned subject. Try a different group.</p>' : ''}</article>`;
     }).join('') || '<p class="mute">Choose a subject and group below to start your plan.</p>'}`);
     setHtml(body.querySelector('[data-planned-week]'), `<h4>Your planned week</h4>${[1, 2, 3, 4, 5, 6, 7].filter((day) => slots.some((slot) => slot.day === day)).map((day) => `<div class="planner-day"><b>${days[day]}</b>${slots.filter((slot) => slot.day === day).map((slot) => `<p>${escape(slot.start_time.slice(0, 5))}–${escape(slot.end_time.slice(0, 5))} · ${escape(slot.code)} <span class="mute">${escape(catalog.find((course) => course.code === slot.code)?.name || '')}</span></p>`).join('')}</div>`).join('') || '<p class="mute">No planned classes yet.</p>'}`);
-    body.querySelectorAll('[data-remove-plan]').forEach((button) => { button.onclick = () => { if (persist(plan.filter((item) => item.code !== button.dataset.removePlan))) { drawPlan(); say('Subject removed from your plan.'); } }; });
-    body.querySelectorAll('[data-plan-group]').forEach((select) => { select.onchange = () => { if (persist(plan.map((item) => item.code === select.dataset.planGroup ? { ...item, section: select.value } : item))) { drawPlan(); say('Planned group updated.'); } }; });
+    body.querySelectorAll('[data-remove-plan]').forEach((button) => { button.onclick = async () => { if (await persist(plan.filter((item) => item.code !== button.dataset.removePlan))) { drawPlan(); say('Subject removed from your plan.'); } }; });
+    body.querySelectorAll('[data-plan-group]').forEach((select) => { select.onchange = async () => { if (await persist(plan.map((item) => item.code === select.dataset.planGroup ? { ...item, section: select.value } : item))) { drawPlan(); say('Planned group updated.'); } }; });
   };
   const showSubject = async (code) => {
     const token = ++request;
@@ -90,9 +90,9 @@ export function mountSubjectPlanner(root, { client, userId, registeredCodes = []
       setHtml(target, `<h4>${escape(code)} · ${escape(course?.name)}</h4><label>Choose a group<select data-selected-group data-plain><option value="">Choose a group</option>${Object.keys(groups).sort().map((group) => `<option value="${escape(group)}">${escape(group)} — ${escape(groupScheduleText(groups[group]))}</option>`).join('')}</select></label><p data-selected-schedule></p><button type="button" data-save-plan disabled>Add to plan</button>${!Object.keys(groups).length ? '<p class="mute">No group schedules are available for this subject.</p>' : ''}`);
       const select = target.querySelector('select'), save = target.querySelector('[data-save-plan]');
       select.onchange = () => { target.querySelector('[data-selected-schedule]').textContent = select.value ? groupScheduleText(groups[select.value]) : ''; save.disabled = !select.value; };
-      save.onclick = () => {
+      save.onclick = async () => {
         if (selection !== code || !groups[select.value]) return;
-        if (persist([...plan.filter((item) => item.code !== code), { code, section: select.value }])) { drawPlan(); say(`${code} saved to your plan.`); }
+        if (await persist([...plan.filter((item) => item.code !== code), { code, section: select.value }])) { drawPlan(); say(`${code} saved to your plan.`); }
       };
     } catch (error) { if (token === request) target.textContent = `Could not load groups: ${error.message}. Select the subject again to retry.`; }
   };
@@ -105,7 +105,9 @@ export function mountSubjectPlanner(root, { client, userId, registeredCodes = []
     if (loaded) { body.hidden = !body.hidden; open.textContent = body.hidden ? 'Browse subjects' : 'Hide planner'; return; }
     open.disabled = true; say('Loading subjects from the uploaded timetable…');
     try {
-      catalog = await loadPlannerCatalog(client);
+      const saved = await accountLoad;
+      if (saved.error) { accountLoad = loadAccountSubjectPlan(client, storage, userId).then((plan) => ({ plan }), (error) => ({ error })); throw saved.error; }
+      [catalog, plan] = [await loadPlannerCatalog(client), saved.plan];
       await Promise.all(plan.map((item) => getSchedules(item.code)));
       if (!root.isConnected) return;
       setHtml(body, '<div class="course-list" data-planned-list></div><div data-planned-week></div><label>Search subject code or name<input type="search" data-subject-search placeholder="e.g. IMJ41103 or Operating System"></label><div data-subject-results></div><div class="planner-selection" data-subject-groups aria-live="polite"></div>');

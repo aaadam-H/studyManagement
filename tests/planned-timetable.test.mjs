@@ -18,7 +18,7 @@ const calls = [];
 const storage = { getItem: () => JSON.stringify([{ code: 'IMJ41103', section: 'G1' }, { code: 'IMJ41203', section: 'removed' }]) };
 const client = { from(table) {
   const filters = {};
-  return { select() { return this; }, eq(key, value) { filters[key] = value; return this; }, order() { return this; }, async range(from, to) {
+  return { async maybeSingle() { return { data: { subjects: JSON.parse(storage.getItem()) }, error: null }; }, select() { return this; }, eq(key, value) { filters[key] = value; return this; }, order() { return this; }, async range(from, to) {
     calls.push({ table, filters: { ...filters }, from });
     const rows = table === 'courses' ? [{ name: 'Operating System' }] : filters.section === 'G1' ? Array.from({ length: 501 }, (_, id) => ({ ...registered[0], id })) : [];
     return { data: rows.slice(from, to + 1), error: null };

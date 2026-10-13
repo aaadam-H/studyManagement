@@ -1,5 +1,5 @@
-import { loadPlannedTimetable, combinePlannedTimetable } from './planned-timetable.js?v=1.2.38';
-import { mountSubjectPlanner } from './subject-planner.js?v=1.2.38';
+import { loadPlannedTimetable, combinePlannedTimetable } from './planned-timetable.js?v=1.2.41';
+import { mountSubjectPlanner } from './subject-planner.js?v=1.2.41';
 import { groupScheduleText, loadGroupSchedules } from './group-schedules.js?v=1.1.14';
 import { parseStudentId } from './student-id.js?v=1.1.16';
 import { maintenanceIsActive, toLocalDateTime } from './maintenance.js?v=1.2.3';
@@ -28,10 +28,10 @@ wireManualClassButton(document, () => manualClassSaveHandler, (error) => {
     }
   });
 // form -> object, empty strings become null (dates/numbers in Postgres reject '')
-const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k, v === '' ? null : v]));
+const fd = (form) => Object.fromEntries([...new FormData(form)].map(([k, v]) => [k === 'profile_name' ? 'name' : k, v === '' ? null : v]));
 const localISO = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const flash = (el, msg, ok) => { el.innerHTML = `<div class="${ok ? 'ok' : 'err'}">${esc(msg)}</div>`; };
-const APP_VERSION = '1.2.40';
+const APP_VERSION = '1.2.41';
 const FOOTER = `<footer>For further assistance / inquiry, WhatsApp me <a href="https://wa.me/aaadam_h" target="_blank" rel="noopener">@aaadam_h</a>
   <div class="ver">StudyHub <span class="ver-tag">v${APP_VERSION}</span> · by aaadam_H · © ${Math.max(2026, new Date().getFullYear())}</div></footer>`;
 const store = {
@@ -215,7 +215,7 @@ function profileFields(u, emailName = 'contact_email') {
   const R = '<span class="req">*</span>', O = '<span class="mute">(optional)</span>';
   const at = (u.email || '').indexOf('@');
   const [local, domain] = at > 0 ? [u.email.slice(0, at), u.email.slice(at + 1)] : ['', STUDENT_MAIL];
-  return `<label>Full name ${R}</label><input name="name" value="${esc(u.name)}" required maxlength="120">
+  return `<label>Full name ${R}</label><input name="profile_name" value="${esc(u.name)}" required maxlength="120">
   <label>Email ${R}</label><div class="email-in">
     <input class="em-local" value="${esc(local)}" required maxlength="64" pattern="[A-Za-z0-9._%+\\-]+" title="The part before @" placeholder="your email name" aria-label="Email, part before @" autocomplete="off"><span>@</span>
     <input class="em-domain" value="${esc(domain)}" required maxlength="60" pattern="[A-Za-z0-9\\-]+(\\.[A-Za-z0-9\\-]+)+" title="e.g. ${esc(STUDENT_MAIL)}" aria-label="Email, part after @"></div>
@@ -379,7 +379,7 @@ function navigationHtml(routes, key) {
     return `<section class="nav-group"><h2 class="nav-group-title">${label}</h2><div class="nav-group-links">${links.map(link).join('')}</div></section>`;
   }).join('');
   if (!routes.admin) return groups;
-  const tools = ['admin-settings', 'admin-users', 'admin-subjects', 'admin-registrations', 'admin-changelog'].filter((route) => routes[route]);
+  const tools = ['admin-settings', 'admin-users', 'admin-timetables', 'admin-subjects', 'admin-registrations', 'admin-changelog'].filter((route) => routes[route]);
   const expanded = tools.includes(key) || key === 'admin' && location.hash.includes('/user/');
   return `${groups}<section class="nav-group nav-admin-group"><h2 class="nav-group-title">Administration</h2><div class="nav-group-links">${link('admin')}</div><details class="nav-admin-tools" ${expanded ? 'open' : ''}><summary>Admin tools</summary><div class="nav-group-links">${tools.map(link).join('')}</div></details></section>`;
 }
@@ -578,7 +578,7 @@ async function render() {
     return;
   }
   const routes = { ...ROUTES, ...(isAdmin() ? {
-    admin: ['Admin overview', pgAdmin], 'admin-settings': ['System settings', pgAdminSettings], 'admin-users': ['Student accounts', pgAdminUsers], 'admin-subjects': ['Subject Search', pgAdminSubjects], 'admin-registrations': ['Student Registrations', pgAdminRegistrations], 'admin-changelog': ['Manage changelog', pgAdminChangelog],
+    admin: ['Admin overview', pgAdmin], 'admin-settings': ['System settings', pgAdminSettings], 'admin-users': ['Student accounts', pgAdminUsers], 'admin-timetables': ['Student timetables', pgAdminTimetables], 'admin-subjects': ['Subject Search', pgAdminSubjects], 'admin-registrations': ['Student Registrations', pgAdminRegistrations], 'admin-changelog': ['Manage changelog', pgAdminChangelog],
   } : {}) };
   const [, fn] = key === 'welcome' ? [null, pgWelcome] : routes[key] || routes[''];
   const pageTitle = key === 'welcome' ? 'Getting started' : (routes[key] || routes[''])[0];
@@ -1244,11 +1244,16 @@ function weekHtml(tt) {
   }
   return html ? KIND_LEGEND + html : '<div class="card mute">No classes to show yet.</div>';
 }
-// read-only view (admin looking at a student)
+// Read-only view of resolved registered and planned groups.
 function timetableHtml(tt) {
-  if (!tt.myCourseCount && !tt.custom.length) return '<div class="card">No registered courses.</div>';
+  if (!tt.myCourseCount && !tt.custom.length && !tt.classes.length) return '<div class="card">No registered courses or planned classes.</div>';
+  const groups = [...tt.courses], seen = new Set(groups.map((course) => JSON.stringify([course.code, course.chosen])));
+  for (const row of tt.classes) if (row.planned) {
+    const key = JSON.stringify([row.course_code, row.section]);
+    if (!seen.has(key)) { seen.add(key); groups.push({ code: row.course_code, name: row.course_name, chosen: row.section, planned: true }); }
+  }
   return `<div class="card"><p>Main group: <b>${tt.main ? esc(groupLabel(tt.main)) : 'not chosen'}</b></p>
-  <table><tr><th>Subject</th><th>Group used</th></tr>${tt.courses.map((c) => `<tr><td>${esc(c.code)} ${esc(c.name || '')}</td><td>${c.chosen ? esc(groupLabel(c.chosen)) : c.section === 'none' ? 'hidden' : '<span class="mute">not set</span>'}</td></tr>`).join('')}</table></div>
+  ${groups.length ? `<table><tr><th>Subject</th><th>Group used</th></tr>${groups.map((c) => `<tr><td>${esc(c.code)} ${esc(c.name || '')}${c.planned ? ' <span class="planned-badge">Planned</span>' : ''}</td><td>${c.chosen ? esc(groupLabel(c.chosen)) : c.section === 'none' ? 'hidden' : '<span class="mute">not set</span>'}</td></tr>`).join('')}</table>` : ''}</div>
   ${weekHtml(tt)}`;
 }
 function drawTimetableWallpaper(canvas, tt, options) {
@@ -2282,17 +2287,82 @@ async function pgAdmin(m) {
     </div></section>
     <section class="admin-hub-group"><h3>People</h3><div class="admin-hub-grid">
       <a class="admin-hub-link" href="#/admin-users"><b>Student accounts</b><span>Search accounts, manage access, and reset passwords</span></a>
+      <a class="admin-hub-link" href="#/admin-timetables"><b>Student timetables</b><span>View and download every student’s week, including planned subjects</span></a>
       <a class="admin-hub-link" href="#/admin-registrations"><b>Student registrations</b><span>Review the subjects students have registered</span></a>
     </div></section>
     <section class="admin-hub-group"><h3>Communication</h3><div class="admin-hub-grid">
       <a class="admin-hub-link" href="#/admin-changelog"><b>Manage changelog</b><span>Review entries and choose which updates are public</span></a>
     </div></section>`;
 }
+async function mountAdminStudentTimetable(root, user, existingTimetable) {
+  try {
+    const tt = existingTimetable || await getTimetable(user.id, user);
+    let planned = { count: 0, classes: [], missing: [] }, planError = '';
+    try { planned = await loadPlannedTimetable(sb, null, user.id); }
+    catch (error) { planError = error.message; }
+    if (!root.isConnected) return;
+    const combined = combinePlannedTimetable(tt.classes, planned.classes);
+    root.replaceChildren(DOMPurify.sanitize(`<h3>Timetable including planned subjects</h3><p class="mute">${tt.classes.length} registered class periods · ${planned.count} planned subjects. Planned classes are highlighted.</p>${planError ? `<p class="err" role="status">Planned subjects could not be loaded: ${esc(planError)}. This view shows registered classes only.</p><button type="button" data-retry-plan>Retry loading plans</button>` : ''}${planned.missing.length ? `<p class="mute">No current timetable group for: ${esc(planned.missing.join(', '))}.</p>` : ''}<p class="mute">Older device-only plans appear after the student opens Timetable or Manual registration in the updated app.</p><label class="admin-plan-toggle"><input type="checkbox" data-show-plans checked> Include planned subjects</label><div data-student-week></div><details class="admin-wallpaper-details"><summary>Generated wallpaper</summary><canvas class="admin-timetable-wallpaper" width="1080" height="1920" aria-label="Generated student timetable wallpaper"></canvas></details><div class="btns"><button type="button" data-download-student>Download timetable PNG</button><a href="#/admin/user/${esc(user.id)}">View account</a></div><p data-timetable-message role="status"></p>`, { RETURN_DOM_FRAGMENT: true }));
+    const canvas = root.querySelector('canvas'), toggle = root.querySelector('[data-show-plans]');
+    const options = { ...WALLPAPER_DEFAULTS, colors: {} };
+    const draw = () => {
+      const visible = { ...tt, classes: toggle.checked ? combined : tt.classes };
+      root.querySelector('[data-student-week]').replaceChildren(DOMPurify.sanitize(timetableHtml(visible), { RETURN_DOM_FRAGMENT: true }));
+      root.querySelector('[data-download-student]').disabled = !visible.classes.length;
+      drawTimetableWallpaper(canvas, visible, options);
+    };
+    toggle.onchange = draw;
+    const retry = root.querySelector('[data-retry-plan]');
+    if (retry) retry.onclick = () => mountAdminStudentTimetable(root, user, tt);
+    root.querySelector('[data-download-student]').onclick = () => {
+      draw();
+      canvas.toBlob((blob) => {
+        if (!blob) { root.querySelector('[data-timetable-message]').textContent = 'Could not create the PNG. Please retry.'; return; }
+        const url = URL.createObjectURL(blob), link = document.createElement('a');
+        link.href = url; link.download = `studyhub-${String(user.student_id).replace(/[^a-z0-9_-]/gi, '')}-timetable.png`;
+        document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+      }, 'image/png');
+    };
+    draw();
+  } catch (error) {
+    if (!root.isConnected) return;
+    root.replaceChildren(DOMPurify.sanitize(`<p class="err">Could not load this timetable: ${esc(error.message)}</p><button type="button" data-retry-timetable>Retry</button>`, { RETURN_DOM_FRAGMENT: true }));
+    root.querySelector('button').onclick = () => mountAdminStudentTimetable(root, user, existingTimetable);
+  }
+}
+
+async function pgAdminTimetables(m) {
+  const users = await q(sb.from('profiles').select('id,name,student_id,subgroup,role').order('student_id'));
+  m.replaceChildren(DOMPurify.sanitize(`<h2>Student timetables</h2><p class="sub">Review each student's registered and planned week, or download their generated timetable wallpaper.</p><div class="card">${filterBar('Search student ID or name')}<div class="btns"><button type="button" data-generate-all>Generate all visible timetables</button><span data-generate-status role="status"></span></div></div><div class="admin-timetables-list">${users.map((user) => `<details class="card qi admin-timetable-entry" data-student="${esc(user.id)}"><summary><b>${esc(user.name)}</b><span class="mute">${esc(user.student_id)} · ${esc(user.role)}</span></summary><div data-student-timetable><p class="mute">Loading timetable…</p></div></details>`).join('') || '<p class="mute">No accounts found.</p>'}</div>`, { RETURN_DOM_FRAGMENT: true }));
+  const inFlight = new Map();
+  const load = (entry) => {
+    if (!inFlight.has(entry.dataset.student)) {
+      const user = users.find((item) => item.id === entry.dataset.student);
+      inFlight.set(user.id, mountAdminStudentTimetable(entry.querySelector('[data-student-timetable]'), user));
+    }
+    return inFlight.get(entry.dataset.student);
+  };
+  m.querySelectorAll('[data-student]').forEach((entry) => { entry.ontoggle = () => { if (entry.open) load(entry); }; });
+  m.querySelector('[data-generate-all]').onclick = async (event) => {
+    const button = event.currentTarget, status = m.querySelector('[data-generate-status]');
+    button.disabled = true;
+    const entries = [...m.querySelectorAll('[data-student]')].filter((entry) => !entry.hidden);
+    try {
+      for (let i = 0; i < entries.length; i++) {
+        if (!m.isConnected) return;
+        status.textContent = `Generating ${i + 1} of ${entries.length}…`;
+        entries[i].open = true; await load(entries[i]);
+      }
+      status.textContent = `${entries.length} timetables loaded. Any loading errors are shown beside the affected student.`;
+    } finally { button.disabled = false; }
+  };
+}
+
 async function pgAdminUsers(m) {
   const users = await q(sb.rpc('admin_users_with_access'));
   m.innerHTML = `<h2>Student accounts</h2><p class="sub">Search accounts and manage roles, passwords, and account details. Last access is shown in your local time.</p>
-    <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<table class="users-tbl"><tr><th>ID</th><th>Name</th><th>Programme</th><th>Courses</th><th>Role</th><th>Last access</th><th></th></tr>
-    ${users.map((u) => `<tr class="qi" data-rl="${esc(u.role)}"><td class="u-id">${esc(u.student_id)}</td><td class="u-name"><b class="u-nm">${esc(u.name)}</b><br><span class="mute">${esc(u.email || '')} ${esc(u.phone || '')}</span></td><td data-l="Programme">${esc(u.program || '')}</td><td data-l="Courses">${u.courses}</td><td data-l="Role">${esc(u.role)}</td><td data-l="Last access">${esc(formatLastAccess(u.last_access_at))}</td><td class="u-acts"><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Set temporary password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></td></tr>`).join('')}</table></div>`;
+    <div class="card"><h3>Users (${users.length})</h3>${filterBar('Search ID, name, email, phone, programme', qSelect('rl', [['', 'All roles'], ['student', 'Students'], ['admin', 'Admins']]))}<div class="admin-users-list">
+    ${users.map((u) => `<article class="admin-user-card qi" data-rl="${esc(u.role)}"><div class="admin-user-heading"><div><b>${esc(u.name)}</b><p class="mute">${esc(u.student_id)}</p></div><span class="tag">${esc(u.role)}</span></div><p class="admin-user-contact">${esc(u.email || '')}<br>${esc(u.phone || '')}</p><dl><div><dt>Programme</dt><dd>${esc(u.program || '—')}</dd></div><div><dt>Registered subjects</dt><dd>${u.courses}</dd></div><div><dt>Last access</dt><dd>${esc(formatLastAccess(u.last_access_at))}</dd></div></dl><div class="acts"><a class="btn sm" href="#/admin/user/${u.id}">View account &amp; timetable</a>${u.id === me.id ? '' : `<button class="sm ghost" data-role="${u.id}" data-r="${u.role === 'admin' ? 'student' : 'admin'}">Make ${u.role === 'admin' ? 'student' : 'admin'}</button><button class="sm ghost" data-pw="${u.id}">Set temporary password</button><button class="sm danger" data-del="${u.id}">Delete</button>`}</div></article>`).join('')}</div></div>`;
   wireUserActions(m);
 }
 async function pgAdminSettings(m) {
@@ -2554,12 +2624,16 @@ async function pgAdminUser(m, uid) {
   <form class="card" id="ef"><h3>Edit details</h3><p class="mute">The student ID is the login name and can't be changed.</p>${profileFields(u, 'email')}<label>Main timetable group <span class="mute">(optional, e.g. UR6523002 - Y3G1)</span></label><input name="subgroup" value="${esc(u.subgroup)}" maxlength="80"><div id="em"></div><p><button>Save changes</button></p></form>
   <div class="card"><h3>Registered subjects (${cs.reduce((a, c) => a + (c.credit || 0), 0)} credits)</h3>
   ${cs.length ? `<table class="registered-subjects"><thead><tr><th>Code</th><th>Name</th><th>Credit</th><th>Group</th><th>Section</th></tr></thead><tbody>${cs.map((c) => `<tr><td data-label="Code">${esc(c.code)}</td><td data-label="Name">${esc(c.name)}</td><td data-label="Credits">${c.credit ?? ''}</td><td data-label="Group">${esc(c.grp || '')}</td><td data-label="Section">${esc(c.section || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="mute">None.</p>'}</div>
-  <h3>Timetable</h3>${timetableHtml(tt)}`;
+  <section id="admin-student-timetable"><h3>Timetable</h3><p class="mute">Loading registered and planned classes…</p></section>`;
   m.replaceChildren(DOMPurify.sanitize(adminUserHtml, { RETURN_DOM_FRAGMENT: true }));
   wireUserActions(m, () => pgAdminUser(m, uid));
+  mountAdminStudentTimetable(m.querySelector('#admin-student-timetable'), u, tt);
   m.querySelector('#ef').onsubmit = async (e) => {
     e.preventDefault();
-    try { await q(sb.rpc('admin_update_profile', { target: uid, data: fd(e.target) })); flash(m.querySelector('#em'), 'Saved', 1); }
+    try { await q(sb.rpc('admin_update_profile', { target: uid, data: fd(e.target) })); flash(m.querySelector('#em'), 'Saved', 1);
+      u.name = fd(e.target).name; u.subgroup = fd(e.target).subgroup;
+      m.querySelector('h2').textContent = u.name;
+      await mountAdminStudentTimetable(m.querySelector('#admin-student-timetable'), u); }
     catch (er) { flash(m.querySelector('#em'), er.message); }
   };
 }
